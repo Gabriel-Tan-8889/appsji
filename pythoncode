@@ -1,42 +1,83 @@
 import time
+import json
+import os
+from datetime import datetime, timedelta
 
 class StudyApp:
     def __init__(self):
-        self.accounts = {}  # username: password
-        self.failed_attempts = {}
-        self.locks = {}
+        self.data_file = "studyapp_data.json"
+        self.load_data()
+        self.last_study_time = {}
+        self.pomodoro_config = {"work": 25, "break": 5}  # minutes
+
+    def load_data(self):
+        if os.path.exists(self.data_file):
+            with open(self.data_file, "r") as f:
+                data = json.load(f)
+                self.accounts = data.get("accounts", {})
+                self.security_questions = data.get("security_questions", {})
+                self.failed_attempts = data.get("failed_attempts", {})
+                self.locks = data.get("locks", {})
+                self.points = data.get("points", {})
+                self.friends = data.get("friends", {})
+                self.flashcards = data.get("flashcards", {})
+                self.daily_challenges = data.get("daily_challenges", {})
+                self.calendar = data.get("calendar", {})
+                self.rewards = data.get("rewards", {})
+                self.past_usernames = data.get("past_usernames", [])
+                self.friend_requests = data.get("friend_requests", {})
+                self.reminders = data.get("reminders", {})
+        else:
+            self.accounts = {}
+            self.security_questions = {}
+            self.failed_attempts = {}
+            self.locks = {}
+            self.points = {}
+            self.friends = {}
+            self.flashcards = {}
+            self.daily_challenges = {}
+            self.calendar = {}
+            self.rewards = {}
+            self.past_usernames = []
+            self.friend_requests = {}
+            self.reminders = {}
         self.current_user = None
-        self.points = {}
-        self.friends = {}
-        self.flashcards = {}
-        self.daily_challenges = {}
-        self.calendar = {}
-        self.rewards = {}
-        self.past_usernames = []
-        self.friend_requests = {}  # username: list of usernames who requested
+
+    def save_data(self):
+        data = {
+            "accounts": self.accounts,
+            "security_questions": self.security_questions,
+            "failed_attempts": self.failed_attempts,
+            "locks": self.locks,
+            "points": self.points,
+            "friends": self.friends,
+            "flashcards": self.flashcards,
+            "daily_challenges": self.daily_challenges,
+            "calendar": self.calendar,
+            "rewards": self.rewards,
+            "past_usernames": self.past_usernames,
+            "friend_requests": self.friend_requests,
+            "reminders": self.reminders,
+        }
+        with open(self.data_file, "w") as f:
+            json.dump(data, f)
 
     def ensure_user(self, username):
-        if username not in self.points:
-            self.points[username] = 0
-        if username not in self.friends:
-            self.friends[username] = []
-        if username not in self.flashcards:
-            self.flashcards[username] = []
-        if username not in self.daily_challenges:
-            self.daily_challenges[username] = []
-        if username not in self.calendar:
-            self.calendar[username] = {}
-        if username not in self.rewards:
-            self.rewards[username] = []
-        if username not in self.failed_attempts:
-            self.failed_attempts[username] = 0
-        if username not in self.locks:
-            self.locks[username] = 0
-        if username not in self.friend_requests:
-            self.friend_requests[username] = []
+        if username not in self.points: self.points[username] = 0
+        if username not in self.friends: self.friends[username] = []
+        if username not in self.flashcards: self.flashcards[username] = []
+        if username not in self.daily_challenges: self.daily_challenges[username] = []
+        if username not in self.calendar: self.calendar[username] = {}
+        if username not in self.rewards: self.rewards[username] = []
+        if username not in self.failed_attempts: self.failed_attempts[username] = 0
+        if username not in self.locks: self.locks[username] = 0
+        if username not in self.friend_requests: self.friend_requests[username] = []
+        if username not in self.reminders: self.reminders[username] = []
+        if username not in self.security_questions: self.security_questions[username] = {"question": "", "answer": ""}
 
     def start_screen(self):
         print("Welcome to Study App!")
+        self.check_due_reminders()
         while True:
             self.login_flow()
 
@@ -58,6 +99,7 @@ class StudyApp:
             self.current_user = username
             print("Login successful!")
             self.check_friend_requests(username)
+            self.check_due_reminders()
             self.loading_screen()
         else:
             print("Incorrect credentials.")
@@ -67,6 +109,7 @@ class StudyApp:
             elif username not in self.accounts:
                 if input("No account! Sign up? (y/n): ").lower() == "y":
                     self.sign_up(username)
+                self.save_data()
                 return
             elif self.failed_attempts[username] >= 3:
                 print("Locked out for 5 seconds.")
@@ -74,26 +117,9 @@ class StudyApp:
                 self.failed_attempts[username] = 0
                 time.sleep(5)
                 self.locks[username] = 0
+            self.save_data()
             return
-
-    def check_friend_requests(self, username):
-        pending = self.friend_requests[username]
-        if pending:
-            print("\nYou have friend requests from:")
-            for requester in pending:
-                print(f"- {requester}")
-            to_accept = input("Enter usernames to accept (comma-separated, or blank to ignore): ")
-            accepted = [u.strip() for u in to_accept.split(',') if u.strip()]
-            for req in accepted:
-                if req in pending:
-                    if req not in self.friends[username]:
-                        self.friends[username].append(req)
-                    if username not in self.friends[req]:
-                        self.friends[req].append(username)
-                    print(f"Accepted friend request from {req}.")
-                    pending.remove(req)
-            # Remove any accepted from requests
-            self.friend_requests[username] = [req for req in pending if req not in accepted]
+        self.save_data()
 
     def check_credentials(self, username, password):
         return self.accounts.get(username) == password
@@ -102,10 +128,20 @@ class StudyApp:
         if username not in self.accounts:
             print("No account detected.")
             return
-        new_password = input("Enter new password: ")
-        self.accounts[username] = new_password
-        self.failed_attempts[username] = 0
-        print("Password reset. Please login again.")
+        sq = self.security_questions[username]
+        if not sq["question"]:
+            print("No security question set for this account. Cannot reset password.")
+            return
+        print("Security question:", sq["question"])
+        answer = input("Your answer: ")
+        if answer.strip().lower() == sq["answer"].strip().lower():
+            new_password = input("Enter new password: ")
+            self.accounts[username] = new_password
+            self.failed_attempts[username] = 0
+            print("Password reset. Please login again.")
+            self.save_data()
+        else:
+            print("Security answer incorrect. Cannot reset password.")
 
     def sign_up(self, username):
         if username in self.accounts:
@@ -116,9 +152,13 @@ class StudyApp:
         if password != confirm:
             print("Passwords do not match.")
             return
+        question = input("Set a security question (for password reset): ")
+        answer = input("Set the answer: ")
         self.accounts[username] = password
+        self.security_questions[username] = {"question": question, "answer": answer}
         self.ensure_user(username)
         print("Account created! Please login.")
+        self.save_data()
 
     def loading_screen(self):
         print("Loading into app...")
@@ -127,52 +167,94 @@ class StudyApp:
     def menu(self):
         while True:
             print("\nWhat screen to go to?")
-            print("1. Study Timer\n2. Flashcards\n3. Data Planner\n4. Daily Challenges\n5. End")
+            print("1. Study Timer\n2. Flashcards\n3. Data Planner\n4. Daily Challenges\n5. Set Reminder\n6. End")
             choice = input("Choice: ")
-            if choice == "1":
-                self.study_timer()
-            elif choice == "2":
-                self.flashcards_menu()
-            elif choice == "3":
-                self.data_planner()
-            elif choice == "4":
-                self.daily_challenges_menu()
-            elif choice == "5":
+            if choice == "1": self.study_timer_menu()
+            elif choice == "2": self.flashcards_menu()
+            elif choice == "3": self.data_planner()
+            elif choice == "4": self.daily_challenges_menu()
+            elif choice == "5": self.set_reminder()
+            elif choice == "6":
                 print("Goodbye!")
+                self.save_data()
                 break
-            else:
-                print("Invalid choice.")
+            else: print("Invalid choice.")
 
-    def study_timer(self):
-        print("Study Timer")
-        input("Press Enter to lock phone and start studying...")
-        print("Phone locked. Timer started. (Simulating study for 1 second)")
-        time.sleep(1)
-        input("Press Enter to stop studying and unlock phone...")
-        print("Phone unlocked. You studied for 1 hour.")
-        self.points[self.current_user] += 2
-        print("You earned 2 points!")
+    # ----------------- Study Timer -----------------
+    def study_timer_menu(self):
+        print("\nStudy Timer Menu")
+        print("1. Pomodoro (25m work/5m break)")
+        print("2. Custom Timer")
+        choice = input("Choice: ")
+        if choice == "1": self.pomodoro_timer()
+        elif choice == "2": self.custom_study_timer()
+        else: print("Invalid choice.")
+
+    def pomodoro_timer(self):
+        work = self.pomodoro_config["work"]
+        brk = self.pomodoro_config["break"]
+        print(f"Pomodoro: {work} minutes work, {brk} minutes break.")
+        input("Press Enter to start work session...")
+        self.run_timer(work * 60, "Work")
+        input("Press Enter to start break session...")
+        self.run_timer(brk * 60, "Break")
+        self.grant_study_points(duration=work)
+        print("Pomodoro session complete! Points awarded.")
         self.leaderboard()
 
+    def custom_study_timer(self):
+        try:
+            mins = int(input("Enter study minutes: "))
+        except ValueError:
+            print("Invalid input.")
+            return
+        if mins <= 0:
+            print("Minutes must be positive.")
+            return
+        input("Press Enter to start timer...")
+        self.run_timer(mins * 60, "Custom Study")
+        self.grant_study_points(duration=mins)
+        print("Custom study session complete! Points awarded.")
+        self.leaderboard()
+
+    def run_timer(self, seconds, label):
+        print(f"{label} timer started for {seconds // 60} minutes.")
+        for i in range(seconds, 0, -1):
+            if i % 60 == 0 or i == seconds or i <= 5:
+                print(f"{i // 60}m {i % 60}s left...", end="\r")
+            time.sleep(1)
+        print("\nTimer done.")
+
+    def grant_study_points(self, duration):
+        now = datetime.now()
+        user = self.current_user
+        last_time = self.last_study_time.get(user)
+        if last_time and (now - last_time) < timedelta(minutes=10):
+            print("You must wait at least 10 minutes between point-earning study sessions.")
+            return
+        pts = max(1, duration // 25 * 2)
+        self.points[user] += pts
+        print(f"You earned {pts} points!")
+        self.last_study_time[user] = now
+        self.save_data()
+
+    # ----------------- Flashcards -----------------
     def flashcards_menu(self):
         while True:
             print("\nFlashcards Menu")
             print("1. Create Flashcard\n2. Study Flashcards\n3. Back")
             choice = input("Choice: ")
-            if choice == "1":
-                self.create_flashcard()
-            elif choice == "2":
-                self.study_flashcards()
-            elif choice == "3":
-                break
-            else:
-                print("Invalid choice.")
+            if choice == "1": self.create_flashcard()
+            elif choice == "2": self.study_flashcards()
+            elif choice == "3": break
+            else: print("Invalid choice.")
 
     def create_flashcard(self):
         question = input("Enter question: ")
         answer = input("Enter answer: ")
         self.flashcards[self.current_user].append((question, answer))
         print("Flashcard created.")
+        self.save_data()
 
     def study_flashcards(self):
         cards = self.flashcards[self.current_user]
@@ -187,8 +269,10 @@ class StudyApp:
             points = {"easy": 1, "medium": 2, "hard": 3}.get(level, 1)
             self.points[self.current_user] += points
             print(f"You earned {points} points!")
+        self.save_data()
         self.leaderboard()
 
+    # ----------------- Data Planner -----------------
     def data_planner(self):
         print("\nData Planner")
         date = input("Enter date to plan (YYYY-MM-DD): ")
@@ -199,51 +283,74 @@ class StudyApp:
         if today:
             print(f"Reminder: Study '{subject}' today!")
             self.points[self.current_user] += 1
+        self.save_data()
         self.leaderboard()
 
+    # ----------------- Daily Challenges -----------------
     def daily_challenges_menu(self):
         while True:
             print("\nDaily Challenges Menu")
             print("1. Generate New Challenge\n2. Answer Challenge\n3. Back")
             choice = input("Choice: ")
-            if choice == "1":
-                self.generate_challenge()
-            elif choice == "2":
-                self.answer_challenge()
-            elif choice == "3":
-                break
-            else:
-                print("Invalid choice.")
+            if choice == "1": self.generate_challenge()
+            elif choice == "2": self.answer_challenge()
+            elif choice == "3": break
+            else: print("Invalid choice.")
 
     def generate_challenge(self):
         q = input("Enter challenge question: ")
         a = input("Enter challenge answer: ")
         self.daily_challenges[self.current_user].append({"question": q, "answer": a, "attempted": False})
         print("Challenge generated.")
+        self.save_data()
 
     def answer_challenge(self):
-        challenges = [c for c in self.daily_challenges[self.current_user] if not c.get("attempted", False)]
+        challenges = [c for c in self.daily_challenges[self.current_user] if not c["attempted"]]
         if not challenges:
-            print("No available challenges.")
+            print("No pending challenges.")
             return
         for c in challenges:
             print(f"Challenge: {c['question']}")
-            answer = input("Your answer: ")
-            if answer.strip().lower() == c["answer"].strip().lower():
+            ans = input("Your answer: ")
+            if ans.strip().lower() == c["answer"].strip().lower():
                 print("Correct!")
-                self.points[self.current_user] += 1
-                c["attempted"] = True
-                print("You earned 1 point!")
+                self.points[self.current_user] += 2
             else:
-                print("Incorrect. Please try again later.")
+                print(f"Wrong! Correct answer: {c['answer']}")
+            c["attempted"] = True
+        self.save_data()
         self.leaderboard()
 
+    # ----------------- Reminders -----------------
+    def set_reminder(self):
+        user = self.current_user
+        print("Set a reminder for your study session or challenge.")
+        msg = input("Reminder text: ")
+        time_str = input("When? (YYYY-MM-DD HH:MM, 24h) ")
+        try:
+            reminder_time = datetime.strptime(time_str, "%Y-%m-%d %H:%M")
+        except ValueError:
+            print("Invalid format.")
+            return
+        self.reminders[user].append({"msg": msg, "time": reminder_time.strftime("%Y-%m-%d %H:%M")})
+        print("Reminder set.")
+        self.save_data()
+
+    def check_due_reminders(self):
+        now = datetime.now()
+        for user, rems in self.reminders.items():
+            due = [r for r in rems if datetime.strptime(r['time'], "%Y-%m-%d %H:%M") <= now]
+            for r in due:
+                print(f"Reminder for {user}: {r['msg']} (Scheduled: {r['time']})")
+            self.reminders[user] = [r for r in rems if r not in due]
+        self.save_data()
+
+    # ----------------- Leaderboard & Rewards -----------------
     def leaderboard(self):
         print(f"\nLeaderboard - Your points: {self.points[self.current_user]}")
-        # Show friends and their points, sorted by points descending
         friends_and_you = [self.current_user] + self.friends[self.current_user]
         leaderboard_list = [(uname, self.points.get(uname, 0)) for uname in friends_and_you]
-        leaderboard_list = list({uname: pts for uname, pts in leaderboard_list}.items())  # remove duplicates
+        leaderboard_list = list({uname: pts for uname, pts in leaderboard_list}.items())
         leaderboard_list.sort(key=lambda tup: tup[1], reverse=True)
         print("Leaderboard (You and Friends):")
         for rank, (uname, pts) in enumerate(leaderboard_list, 1):
@@ -283,6 +390,28 @@ class StudyApp:
             self.rewards[self.current_user].append(reward)
             self.points[self.current_user] -= 10
             print(f"You redeemed: {reward} (10 points used).")
+        self.save_data()
+
+    # ----------------- Friend Requests -----------------
+    def check_friend_requests(self, username):
+        pending = self.friend_requests[username]
+        if pending:
+            print("\nYou have friend requests from:")
+            for requester in pending:
+                print(f"- {requester}")
+            to_accept = input("Enter usernames to accept (comma-separated, or blank to ignore): ")
+            accepted = [u.strip() for u in to_accept.split(',') if u.strip()]
+            for req in accepted:
+                if req in pending:
+                    if req not in self.friends[username]:
+                        self.friends[username].append(req)
+                    if username not in self.friends[req]:
+                        self.friends[req].append(username)
+                    print(f"Accepted friend request from {req}.")
+                    pending.remove(req)
+            self.friend_requests[username] = [req for req in pending if req not in accepted]
+        self.save_data()
+
 
 if __name__ == "__main__":
     app = StudyApp()
