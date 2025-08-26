@@ -1,50 +1,146 @@
 import SwiftUI
+import Combine
 
 // MARK: - Models
 
-struct User: Identifiable, Equatable {
-    let id: String // username
+struct UserAccount: Codable, Equatable {
+    var username: String
     var password: String
-    var points: Int
-    var friends: [String]
-    var friendRequests: [String]
-    var rewards: [String]
+    var securityQuestion: String?
+    var securityAnswer: String?
 }
 
-enum Reward: String, CaseIterable {
-    case giftCard = "Gift card"
-    case gameProp = "Game prop"
-    case extraTheme = "Extra theme"
-    case pet = "Pet"
-    case extraContent = "Extra content"
-    case keepPoints = "Keep my points (no reward)"
+struct Flashcard: Codable, Identifiable {
+    let id = UUID()
+    var question: String
+    var answer: String
 }
 
-// MARK: - ViewModel
+struct Challenge: Codable, Identifiable {
+    let id = UUID()
+    var question: String
+    var answer: String
+    var attempted: Bool = false
+}
 
-class StudyAppViewModel: ObservableObject {
-    @Published var users: [User] = []
-    @Published var currentUser: User?
-    @Published var loginError: String?
-    @Published var showRewardSheet = false
+struct ReminderItem: Codable, Identifiable {
+    let id = UUID()
+    var msg: String
+    var dateString: String // "yyyy-MM-dd HH:mm"
+}
 
-    // MARK: - User Management
+// MARK: - App Model
 
-    func signUp(username: String, password: String) -> Bool {
-        guard !username.isEmpty, !password.isEmpty else {
-            loginError = "Username and password required"
-            return false
+final class StudyAppModel: ObservableObject {
+    // Data containers
+    @Published var accounts: [String: UserAccount] = [:]            // username -> account
+    @Published var points: [String: Int] = [:]
+    @Published var friends: [String: [String]] = [:]
+    @Published var friendRequests: [String: [String]] = [:]
+    @Published var flashcards: [String: [Flashcard]] = [:]
+    @Published var dailyChallenges: [String: [Challenge]] = [:]
+    @Published var calendarPlans: [String: [String: String]] = [:] // user -> date -> task
+    @Published var rewards: [String: [String]] = [:]
+    @Published var reminders: [String: [ReminderItem]] = [:]
+    @Published var pastUsernames: [String] = []
+    @Published var lastStudyTime: [String: Date] = [:]
+    @Published var pomodoroConfig: [String: Int] = ["work": 25, "break": 5]
+
+    @Published var currentUser: String? = nil
+    @Published var loginError: String? = nil
+
+    private let storageKey = "StudyAppModelStorage_v1"
+
+    init() {
+        load()
+    }
+
+    // MARK: - Persistence
+    func save() {
+        let wrapper = StorageWrapper(accounts: accounts,
+                                     points: points,
+                                     friends: friends,
+                                     friendRequests: friendRequests,
+                                     flashcards: flashcards,
+                                     dailyChallenges: dailyChallenges,
+                                     calendarPlans: calendarPlans,
+                                     rewards: rewards,
+                                     reminders: reminders,
+                                     pastUsernames: pastUsernames,
+                                     lastStudyTime: lastStudyTime.mapValues { $0.timeIntervalSince1970 },
+                                     pomodoroConfig: pomodoroConfig)
+        if let data = try? JSONEncoder().encode(wrapper) {
+            UserDefaults.standard.set(data, forKey: storageKey)
         }
-        guard !users.contains(where: { $0.id == username }) else { return false }
-        let user = User(id: username, password: password, points: 0, friends: [], friendRequests: [], rewards: [])
-        users.append(user)
+    }
+
+    func load() {
+        guard let data = UserDefaults.standard.data(forKey: storageKey),
+              let wrapper = try? JSONDecoder().decode(StorageWrapper.self, from: data) else {
+            // initialize empty structures
+            return
+        }
+        self.accounts = wrapper.accounts
+        self.points = wrapper.points
+        self.friends = wrapper.friends
+        self.friendRequests = wrapper.friendRequests
+        self.flashcards = wrapper.flashcards.mapValues { $0 }
+        self.dailyChallenges = wrapper.dailyChallenges.mapValues { $0 }
+        self.calendarPlans = wrapper.calendarPlans
+        self.rewards = wrapper.rewards
+        self.reminders = wrapper.reminders.mapValues { $0 }
+        self.pastUsernames = wrapper.pastUsernames
+        self.lastStudyTime = wrapper.lastStudyTime.mapValues { Date(timeIntervalSince1970: $0) }
+        self.pomodoroConfig = wrapper.pomodoroConfig
+    }
+
+    struct StorageWrapper: Codable {
+        var accounts: [String: UserAccount]
+        var points: [String: Int]
+        var friends: [String: [String]]
+        var friendRequests: [String: [String]]
+        var flashcards: [String: [Flashcard]]
+        var dailyChallenges: [String: [Challenge]]
+        var calendarPlans: [String: [String: String]]
+        var rewards: [String: [String]]
+        var reminders: [String: [ReminderItem]]
+        var pastUsernames: [String]
+        var lastStudyTime: [String: TimeInterval]
+        var pomodoroConfig: [String: Int]
+    }
+
+    // MARK: - Helpers
+    func ensureUser(_ username: String) {
+        if points[username] == nil { points[username] = 0 }
+        if friends[username] == nil { friends[username] = [] }
+        if friendRequests[username] == nil { friendRequests[username] = [] }
+        if flashcards[username] == nil { flashcards[username] = [] }
+        if dailyChallenges[username] == nil { dailyChallenges[username] = [] }
+        if calendarPlans[username] == nil { calendarPlans[username] = [:] }
+        if rewards[username] == nil { rewards[username] = [] }
+        if reminders[username] == nil { reminders[username] = [] }
+        if pastUsernames.firstIndex(of: username) == nil {
+            pastUsernames.append(username)
+        }
+    }
+
+    // MARK: - Accounts
+    func signUp(username: String, password: String, question: String?, answer: String?) -> Bool {
+        guard accounts[username] == nil, !username.isEmpty, !password.isEmpty else { return false }
+        let acc = UserAccount(username: username, password: password, securityQuestion: question, securityAnswer: answer)
+        accounts[username] = acc
+        ensureUser(username)
+        save()
         return true
     }
 
     func login(username: String, password: String) -> Bool {
-        if let idx = users.firstIndex(where: { $0.id == username && $0.password == password }) {
-            currentUser = users[idx]
+        ensureUser(username)
+        pastUsernames = Array(Set(pastUsernames + [username]))
+        if let acc = accounts[username], acc.password == password {
+            currentUser = username
             loginError = nil
+            save()
             return true
         } else {
             loginError = "Invalid credentials"
@@ -52,131 +148,235 @@ class StudyAppViewModel: ObservableObject {
         }
     }
 
-    func logout() {
-        if let user = currentUser { saveUser(user) }
-        currentUser = nil
-    }
-
-    func saveUser(_ user: User) {
-        if let idx = users.firstIndex(where: { $0.id == user.id }) {
-            users[idx] = user
+    func resetPassword(username: String, providedAnswer: String, newPassword: String) -> Bool {
+        guard var acc = accounts[username],
+              let correct = acc.securityAnswer, !correct.isEmpty else { return false }
+        if correct.lowercased() == providedAnswer.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+            acc.password = newPassword
+            accounts[username] = acc
+            save()
+            return true
         }
+        return false
     }
 
-    // MARK: - Friends & Requests
+    func logout() {
+        currentUser = nil
+        save()
+    }
 
+    // MARK: - Friend requests / friends
     func sendFriendRequest(to username: String) {
-        guard let current = currentUser,
-              !username.isEmpty,
-              let idx = users.firstIndex(where: { $0.id == username }),
-              username != current.id else { return }
-        if !users[idx].friendRequests.contains(current.id) &&
-            !users[idx].friends.contains(current.id) {
-            users[idx].friendRequests.append(current.id)
+        guard let me = currentUser, username != me, accounts[username] != nil else { return }
+        ensureUser(username)
+        if !(friendRequests[username]?.contains(me) ?? false), !(friends[username]?.contains(me) ?? false) {
+            friendRequests[username]?.append(me)
+            save()
         }
     }
 
     func acceptFriendRequest(from username: String) {
-        guard var user = currentUser else { return }
-        if user.friendRequests.contains(username) && !user.friends.contains(username) {
-            user.friends.append(username)
-            if let idx = users.firstIndex(where: { $0.id == username }) {
-                if !users[idx].friends.contains(user.id) {
-                    users[idx].friends.append(user.id)
+        guard let me = currentUser else { return }
+        if friendRequests[me]?.contains(username) ?? false {
+            friends[me, default: []].append(username)
+            friends[username, default: []].append(me)
+            friendRequests[me]?.removeAll(where: { $0 == username })
+            save()
+        }
+    }
+
+    // MARK: - Study / points
+    func studyHour() {
+        guard let me = currentUser else { return }
+        points[me, default: 0] += 2
+        save()
+    }
+
+    func grantStudyPoints(durationMinutes: Int) -> String {
+        guard let me = currentUser else { return "No user" }
+        // prevent cheating: 10 min cooldown
+        if let last = lastStudyTime[me], Date().timeIntervalSince(last) < 10 * 60 {
+            return "Wait at least 10 minutes between point-earning sessions."
+        }
+        let pts = max(1, (durationMinutes / 25) * 2)
+        points[me, default: 0] += pts
+        lastStudyTime[me] = Date()
+        save()
+        return "Awarded \(pts) pts."
+    }
+
+    // MARK: - Flashcards
+    func createFlashcard(question: String, answer: String) {
+        guard let me = currentUser else { return }
+        flashcards[me, default: []].append(Flashcard(question: question, answer: answer))
+        save()
+    }
+
+    func studyFlashcards(assignDifficultyPoints: (String) -> Int) -> Int {
+        guard let me = currentUser else { return 0 }
+        var awarded = 0
+        for card in flashcards[me, default: []] {
+            let pts = assignDifficultyPoints("medium") // UI should ask; here default medium
+            points[me, default: 0] += pts
+            awarded += pts
+        }
+        save()
+        return awarded
+    }
+
+    // MARK: - Planner
+    func addPlan(date: String, subject: String, today: Bool) {
+        guard let me = currentUser else { return }
+        calendarPlans[me, default: [:]][date] = subject
+        if today { points[me, default: 0] += 1 }
+        save()
+    }
+
+    // MARK: - Challenges
+    func createChallenge(question: String, answer: String) {
+        guard let me = currentUser else { return }
+        dailyChallenges[me, default: []].append(Challenge(question: question, answer: answer))
+        save()
+    }
+
+    func answerChallenge(challengeId: UUID, response: String) -> Bool {
+        guard let me = currentUser else { return false }
+        guard var list = dailyChallenges[me] else { return false }
+        if let idx = list.firstIndex(where: { $0.id == challengeId }) {
+            if list[idx].attempted { return false }
+            if list[idx].answer.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == response.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+                points[me, default: 0] += 1
+                list[idx].attempted = true
+                dailyChallenges[me] = list
+                save()
+                return true
+            } else {
+                list[idx].attempted = true
+                dailyChallenges[me] = list
+                save()
+                return false
+            }
+        }
+        return false
+    }
+
+    // MARK: - Reminders
+    func setReminder(msg: String, dateString: String) {
+        guard let me = currentUser else { return }
+        reminders[me, default: []].append(ReminderItem(msg: msg, dateString: dateString))
+        save()
+    }
+
+    func checkDueReminders() -> [ReminderItem] {
+        var due: [ReminderItem] = []
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd HH:mm"
+        for (user, rems) in reminders {
+            for r in rems {
+                if let d = formatter.date(from: r.dateString), d <= Date() {
+                    due.append(r)
                 }
             }
-            user.friendRequests.removeAll { $0 == username }
-            saveUser(user)
-            currentUser = user
         }
-    }
-
-    // MARK: - Study/Points
-
-    func studyHour() {
-        guard var user = currentUser else { return }
-        user.points += 2
-        saveUser(user)
-        currentUser = user
-    }
-
-    func addPoints(_ amount: Int) {
-        guard var user = currentUser else { return }
-        user.points += amount
-        saveUser(user)
-        currentUser = user
-    }
-
-    // MARK: - Rewards
-
-    func canRedeemReward() -> Bool {
-        (currentUser?.points ?? 0) >= 10
-    }
-
-    func redeemReward(_ reward: Reward) {
-        guard var user = currentUser else { return }
-        if reward != .keepPoints {
-            user.points -= 10
-            user.rewards.append(reward.rawValue)
+        // remove delivered
+        for (user, rems) in reminders {
+            reminders[user] = rems.filter {
+                if let d = formatter.date(from: $0.dateString) { return d > Date() }
+                return true
+            }
         }
-        saveUser(user)
-        currentUser = user
+        save()
+        return due
     }
 
     // MARK: - Leaderboard
+    func leaderboard() -> [(String, Int)] {
+        guard let me = currentUser else { return [] }
+        let friendsAndMe = [me] + (friends[me] ?? [])
+        var map: [String: Int] = [:]
+        for u in Set(friendsAndMe) {
+            map[u] = points[u, default: 0]
+        }
+        return map.sorted { $0.value > $1.value }
+    }
 
-    func leaderboard() -> [User] {
-        guard let user = currentUser else { return [] }
-        let friendUsers = users.filter { user.friends.contains($0.id) }
-        let all = [user] + friendUsers
-        let unique = Dictionary(grouping: all, by: { $0.id }).compactMap { $0.value.first }
-        return unique.sorted { $0.points > $1.points }
+    // MARK: - Rewards
+    func availableToRedeem() -> Bool {
+        guard let me = currentUser else { return false }
+        return points[me, default: 0] >= 10
+    }
+
+    func redeemReward(choice: Int) -> String {
+        guard let me = currentUser else { return "No user" }
+        let map = [
+            1: "Gift card",
+            2: "Game prop",
+            3: "Extra theme",
+            4: "Pet",
+            5: "Extra content",
+            6: "Keep points"
+        ]
+        let reward = map[choice] ?? "Gift card"
+        if choice == 6 {
+            return "Kept points"
+        } else {
+            if points[me, default: 0] >= 10 {
+                rewards[me, default: []].append(reward)
+                points[me, default: 0] -= 10
+                save()
+                return "Redeemed \(reward)"
+            } else {
+                return "Not enough points"
+            }
+        }
     }
 }
 
-// MARK: - Views
+// MARK: - SwiftUI Views (simple)
+// NOTE: These are intentionally simple UIs for demonstration. You can extend styling and behavior.
 
-struct LoginView: View {
-    @ObservedObject var vm: StudyAppViewModel
-    @State private var username = ""
-    @State private var password = ""
-    @State private var isSignUp = false
+struct ContentView: View {
+    @StateObject var model = StudyAppModel()
 
     var body: some View {
-        VStack {
-            Text(isSignUp ? "Sign Up" : "Login").font(.largeTitle)
+        if model.currentUser == nil {
+            LoginView(model: model)
+        } else {
+            MainMenuView(model: model)
+        }
+    }
+}
 
-            // Conditionally apply autocapitalization/autocorrection for platforms that support UIKit (iOS/tvOS)
-            #if canImport(UIKit)
-            TextField("Username", text: $username)
-                .autocapitalization(.none)
-                .disableAutocorrection(true)
-            #else
-            TextField("Username", text: $username)
-            #endif
+struct LoginView: View {
+    @ObservedObject var model: StudyAppModel
+    @State private var username = ""
+    @State private var password = ""
+    @State private var showSignUp = false
 
-            SecureField("Password", text: $password)
+    var body: some View {
+        VStack(spacing: 12) {
+            Text(showSignUp ? "Sign Up" : "Login").font(.largeTitle)
+            TextField("Username", text: $username).textFieldStyle(RoundedBorderTextFieldStyle())
+            SecureField("Password", text: $password).textFieldStyle(RoundedBorderTextFieldStyle())
 
-            if let error = vm.loginError {
-                Text(error).foregroundColor(.red)
-            }
+            if let err = model.loginError { Text(err).foregroundColor(.red) }
 
-            Button(isSignUp ? "Sign Up" : "Login") {
-                if isSignUp {
-                    if vm.signUp(username: username, password: password) {
-                        isSignUp = false
-                        vm.login(username: username, password: password)
+            Button(showSignUp ? "Create Account" : "Login") {
+                if showSignUp {
+                    // For simplicity, ask for security Q/ans via alert style in a real app; here we set blank
+                    let created = model.signUp(username: username, password: password, question: nil, answer: nil)
+                    if created {
+                        _ = model.login(username: username, password: password)
                     } else {
-                        if vm.loginError == nil { vm.loginError = "Username already exists" }
+                        model.loginError = "Username exists or invalid."
                     }
                 } else {
-                    _ = vm.login(username: username, password: password)
+                    _ = model.login(username: username, password: password)
                 }
-            }
-            .padding()
+            }.padding()
 
-            Button(isSignUp ? "Already have an account? Login" : "No account? Sign Up") {
-                isSignUp.toggle()
+            Button(showSignUp ? "Have account? Login" : "No account? Sign Up") {
+                showSignUp.toggle()
             }
         }
         .padding()
@@ -184,119 +384,287 @@ struct LoginView: View {
 }
 
 struct MainMenuView: View {
-    @ObservedObject var vm: StudyAppViewModel
-    @State private var friendUsername = ""
+    @ObservedObject var model: StudyAppModel
+    @State private var friendName = ""
+    @State private var showRewards = false
+    @State private var showTimer = false
+    @State private var showFlashcards = false
+    @State private var showPlanner = false
+    @State private var showChallenges = false
     @State private var showLeaderboard = false
+    @State private var showReminders: [ReminderItem] = []
 
     var body: some View {
-        VStack(spacing: 20) {
-            if let user = vm.currentUser {
-                Text("Hello, \(user.id)! Points: \(user.points)").font(.headline)
+        VStack(spacing: 12) {
+            if let user = model.currentUser {
+                Text("Hello, \(user)! Points: \(model.points[user, default: 0])").font(.headline)
 
-                if !user.friendRequests.isEmpty {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Friend Requests:").bold()
-                        ForEach(user.friendRequests, id: \.self) { req in
+                if let pending = model.friendRequests[user], !pending.isEmpty {
+                    VStack(alignment: .leading) {
+                        Text("Friend requests:").bold()
+                        ForEach(pending, id: \.self) { req in
                             HStack {
                                 Text(req)
                                 Spacer()
-                                Button("Accept") { vm.acceptFriendRequest(from: req) }
+                                Button("Accept") {
+                                    model.acceptFriendRequest(from: req)
+                                }
+                            }
+                        }
+                    }.padding()
+                }
+
+                HStack {
+                    TextField("Friend's username", text: $friendName).textFieldStyle(RoundedBorderTextFieldStyle())
+                    Button("Add") {
+                        model.sendFriendRequest(to: friendName)
+                        friendName = ""
+                    }
+                }
+
+                HStack {
+                    Button("Study +2") { model.studyHour() }
+                    Button("Timer") { showTimer = true }
+                }
+
+                HStack {
+                    Button("Flashcards") { showFlashcards = true }
+                    Button("Planner") { showPlanner = true }
+                    Button("Challenges") { showChallenges = true }
+                }
+
+                HStack {
+                    Button("Leaderboard") { showLeaderboard = true }
+                    Button("Rewards") { showRewards = true }
+                    Button("Logout") { model.logout() }
+                }
+
+                Spacer()
+            }
+        }
+        .padding()
+        // Sheets/presentations
+        .sheet(isPresented: $showRewards) { RewardSheetView(model: model) }
+        .sheet(isPresented: $showTimer) { TimerView(model: model) }
+        .sheet(isPresented: $showFlashcards) { FlashcardsView(model: model) }
+        .sheet(isPresented: $showPlanner) { PlannerView(model: model) }
+        .sheet(isPresented: $showChallenges) { ChallengesView(model: model) }
+        .sheet(isPresented: $showLeaderboard) { LeaderboardView(model: model) }
+    }
+}
+
+// Simple flashcards view
+struct FlashcardsView: View {
+    @ObservedObject var model: StudyAppModel
+    @State private var question = ""
+    @State private var answer = ""
+
+    var body: some View {
+        NavigationView {
+            VStack {
+                Form {
+                    Section(header: Text("Create")) {
+                        TextField("Question", text: $question)
+                        TextField("Answer", text: $answer)
+                        Button("Add") {
+                            model.createFlashcard(question: question, answer: answer)
+                            question = ""; answer = ""
+                        }
+                    }
+                    Section(header: Text("Your flashcards")) {
+                        List {
+                            if let user = model.currentUser {
+                                ForEach(model.flashcards[user] ?? []) { card in
+                                    VStack(alignment: .leading) {
+                                        Text(card.question).bold()
+                                        Text(card.answer).foregroundColor(.secondary)
+                                    }
+                                }
                             }
                         }
                     }
                 }
+            }
+            .navigationTitle("Flashcards")
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { UIApplication.shared.windows.first?.rootViewController?.dismiss(animated: true) } } }
+        }
+    }
+}
 
-                HStack {
-                    #if canImport(UIKit)
-                    TextField("Friend's username", text: $friendUsername)
-                        .autocapitalization(.none)
-                        .disableAutocorrection(true)
-                    #else
-                    TextField("Friend's username", text: $friendUsername)
-                    #endif
+struct PlannerView: View {
+    @ObservedObject var model: StudyAppModel
+    @State private var date = ""
+    @State private var subject = ""
+    @State private var today = false
 
-                    Button("Add Friend") {
-                        vm.sendFriendRequest(to: friendUsername)
-                        friendUsername = ""
+    var body: some View {
+        NavigationView {
+            Form {
+                TextField("YYYY-MM-DD", text: $date)
+                TextField("Subject/Task", text: $subject)
+                Toggle("Is today?", isOn: $today)
+                Button("Add Plan") {
+                    model.addPlan(date: date, subject: subject, today: today)
+                    date = ""; subject = ""; today = false
+                }
+                if let me = model.currentUser {
+                    Section("Your plans") {
+                        ForEach(Array(model.calendarPlans[me]?.sorted(by: { $0.key < $1.key }) ?? []), id: \.key) { k, v in
+                            HStack {
+                                Text(k); Spacer(); Text(v)
+                            }
+                        }
                     }
                 }
-
-                Button("Study +2 pts") { vm.studyHour() }
-
-                Button("Leaderboard") { showLeaderboard = true }
-                    .sheet(isPresented: $showLeaderboard) {
-                        LeaderboardView(vm: vm)
-                    }
-
-                Button("Rewards") { vm.showRewardSheet = true }
-                    .sheet(isPresented: $vm.showRewardSheet) {
-                        RewardSheetView(vm: vm)
-                    }
-
-                Button("Logout") { vm.logout() }
-
-                // Inline leaderboard
-                LeaderboardView(vm: vm)
             }
+            .navigationTitle("Planner")
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { UIApplication.shared.windows.first?.rootViewController?.dismiss(animated: true) } } }
         }
-        .padding()
+    }
+}
+
+struct ChallengesView: View {
+    @ObservedObject var model: StudyAppModel
+    @State private var question = ""
+    @State private var answer = ""
+    @State private var response = ""
+
+    var body: some View {
+        NavigationView {
+            VStack {
+                Form {
+                    Section(header: Text("Create Challenge")) {
+                        TextField("Question", text: $question)
+                        TextField("Answer", text: $answer)
+                        Button("Create") {
+                            model.createChallenge(question: question, answer: answer)
+                            question = ""; answer = ""
+                        }
+                    }
+                    if let me = model.currentUser {
+                        Section(header: Text("Pending")) {
+                            List {
+                                ForEach(model.dailyChallenges[me] ?? []) { ch in
+                                    VStack(alignment: .leading) {
+                                        Text(ch.question).bold()
+                                        HStack {
+                                            TextField("Your answer", text: $response)
+                                            Button("Submit") {
+                                                let ok = model.answerChallenge(challengeId: ch.id, response: response)
+                                                response = ""
+                                                // optionally show feedback
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Challenges")
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { UIApplication.shared.windows.first?.rootViewController?.dismiss(animated: true) } } }
+        }
+    }
+}
+
+struct TimerView: View {
+    @ObservedObject var model: StudyAppModel
+    @State private var workMinutes = 25
+    @State private var breakMinutes = 5
+    @State private var customMinutes = 10
+    @State private var message = ""
+
+    var body: some View {
+        NavigationView {
+            VStack(spacing: 12) {
+                HStack {
+                    Stepper("Work: \(workMinutes)m", value: $workMinutes, in: 1...120)
+                    Stepper("Break: \(breakMinutes)m", value: $breakMinutes, in: 1...60)
+                }
+                Button("Start Pomodoro (simulate)") {
+                    // we won't block UI; simulate awarding points for work
+                    message = model.grantStudyPoints(durationMinutes: workMinutes)
+                }
+                Divider()
+                HStack {
+                    Stepper("Custom: \(customMinutes)m", value: $customMinutes, in: 1...600)
+                    Button("Start Custom") { message = model.grantStudyPoints(durationMinutes: customMinutes) }
+                }
+                Text(message).padding()
+                Spacer()
+            }
+            .padding()
+            .navigationTitle("Timer")
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { UIApplication.shared.windows.first?.rootViewController?.dismiss(animated: true) } } }
+        }
     }
 }
 
 struct LeaderboardView: View {
-    @ObservedObject var vm: StudyAppViewModel
+    @ObservedObject var model: StudyAppModel
 
     var body: some View {
-        VStack {
-            Text("Leaderboard (You & Friends)").bold()
-            ForEach(vm.leaderboard()) { user in
-                HStack {
-                    Text(user.id)
-                    Spacer()
-                    Text("\(user.points) pts")
-                    if user.id == vm.currentUser?.id { Text("(You)").italic() }
+        NavigationView {
+            VStack {
+                List {
+                    ForEach(model.leaderboard(), id: \.0) { name, pts in
+                        HStack {
+                            Text(name)
+                            Spacer()
+                            Text("\(pts) pts")
+                            if name == model.currentUser { Text("(You)").italic() }
+                        }
+                    }
                 }
             }
+            .navigationTitle("Leaderboard")
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { UIApplication.shared.windows.first?.rootViewController?.dismiss(animated: true) } } }
         }
-        .padding()
     }
 }
 
 struct RewardSheetView: View {
-    @ObservedObject var vm: StudyAppViewModel
-
+    @ObservedObject var model: StudyAppModel
+    @Environment(\.presentationMode) var presentationMode
     var body: some View {
-        VStack {
-            Text("Rewards (10 points each)").font(.headline)
-            ForEach(Reward.allCases, id: \.self) { reward in
-                Button(reward.rawValue) {
-                    if vm.canRedeemReward() || reward == .keepPoints {
-                        vm.redeemReward(reward)
+        NavigationView {
+            VStack(spacing: 12) {
+                Text("Rewards (10 pts)").font(.headline)
+                ForEach(1..<7) { i in
+                    Button(action: {
+                        let msg = model.redeemReward(choice: i)
+                        print(msg)
+                        presentationMode.wrappedValue.dismiss()
+                    }) {
+                        Text(rewardName(i))
                     }
+                    .disabled(i != 6 && !model.availableToRedeem())
                 }
-                .disabled(!(vm.canRedeemReward() || reward == .keepPoints))
+                Spacer()
             }
-            Button("Close") { vm.showRewardSheet = false }
+            .padding()
+            .navigationTitle("Rewards")
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { presentationMode.wrappedValue.dismiss() } } }
         }
-        .padding()
+    }
+
+    func rewardName(_ i: Int) -> String {
+        switch i {
+        case 1: return "Gift card"
+        case 2: return "Game prop"
+        case 3: return "Extra theme"
+        case 4: return "Pet"
+        case 5: return "Extra content"
+        default: return "Keep points"
+        }
     }
 }
 
-// MARK: - App Entry
-
-struct ContentView: View {
-    @StateObject var vm = StudyAppViewModel()
-    var body: some View {
-        if vm.currentUser == nil {
-            LoginView(vm: vm)
-        } else {
-            MainMenuView(vm: vm)
-        }
-    }
-}
+// MARK: - App entry
 
 @main
-struct StudyAppMain: App {
+struct StudyAppSwiftUI: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
