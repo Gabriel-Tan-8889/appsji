@@ -1,0 +1,305 @@
+import SwiftUI
+
+// MARK: - Models
+
+struct User: Identifiable, Equatable {
+    let id: String // username
+    var password: String
+    var points: Int
+    var friends: [String]
+    var friendRequests: [String]
+    var rewards: [String]
+}
+
+enum Reward: String, CaseIterable {
+    case giftCard = "Gift card"
+    case gameProp = "Game prop"
+    case extraTheme = "Extra theme"
+    case pet = "Pet"
+    case extraContent = "Extra content"
+    case keepPoints = "Keep my points (no reward)"
+}
+
+// MARK: - ViewModel
+
+class StudyAppViewModel: ObservableObject {
+    @Published var users: [User] = []
+    @Published var currentUser: User?
+    @Published var loginError: String?
+    @Published var showRewardSheet = false
+
+    // MARK: - User Management
+
+    func signUp(username: String, password: String) -> Bool {
+        guard !username.isEmpty, !password.isEmpty else {
+            loginError = "Username and password required"
+            return false
+        }
+        guard !users.contains(where: { $0.id == username }) else { return false }
+        let user = User(id: username, password: password, points: 0, friends: [], friendRequests: [], rewards: [])
+        users.append(user)
+        return true
+    }
+
+    func login(username: String, password: String) -> Bool {
+        if let idx = users.firstIndex(where: { $0.id == username && $0.password == password }) {
+            currentUser = users[idx]
+            loginError = nil
+            return true
+        } else {
+            loginError = "Invalid credentials"
+            return false
+        }
+    }
+
+    func logout() {
+        if let user = currentUser { saveUser(user) }
+        currentUser = nil
+    }
+
+    func saveUser(_ user: User) {
+        if let idx = users.firstIndex(where: { $0.id == user.id }) {
+            users[idx] = user
+        }
+    }
+
+    // MARK: - Friends & Requests
+
+    func sendFriendRequest(to username: String) {
+        guard let current = currentUser,
+              !username.isEmpty,
+              let idx = users.firstIndex(where: { $0.id == username }),
+              username != current.id else { return }
+        if !users[idx].friendRequests.contains(current.id) &&
+            !users[idx].friends.contains(current.id) {
+            users[idx].friendRequests.append(current.id)
+        }
+    }
+
+    func acceptFriendRequest(from username: String) {
+        guard var user = currentUser else { return }
+        if user.friendRequests.contains(username) && !user.friends.contains(username) {
+            user.friends.append(username)
+            if let idx = users.firstIndex(where: { $0.id == username }) {
+                if !users[idx].friends.contains(user.id) {
+                    users[idx].friends.append(user.id)
+                }
+            }
+            user.friendRequests.removeAll { $0 == username }
+            saveUser(user)
+            currentUser = user
+        }
+    }
+
+    // MARK: - Study/Points
+
+    func studyHour() {
+        guard var user = currentUser else { return }
+        user.points += 2
+        saveUser(user)
+        currentUser = user
+    }
+
+    func addPoints(_ amount: Int) {
+        guard var user = currentUser else { return }
+        user.points += amount
+        saveUser(user)
+        currentUser = user
+    }
+
+    // MARK: - Rewards
+
+    func canRedeemReward() -> Bool {
+        (currentUser?.points ?? 0) >= 10
+    }
+
+    func redeemReward(_ reward: Reward) {
+        guard var user = currentUser else { return }
+        if reward != .keepPoints {
+            user.points -= 10
+            user.rewards.append(reward.rawValue)
+        }
+        saveUser(user)
+        currentUser = user
+    }
+
+    // MARK: - Leaderboard
+
+    func leaderboard() -> [User] {
+        guard let user = currentUser else { return [] }
+        let friendUsers = users.filter { user.friends.contains($0.id) }
+        let all = [user] + friendUsers
+        let unique = Dictionary(grouping: all, by: { $0.id }).compactMap { $0.value.first }
+        return unique.sorted { $0.points > $1.points }
+    }
+}
+
+// MARK: - Views
+
+struct LoginView: View {
+    @ObservedObject var vm: StudyAppViewModel
+    @State private var username = ""
+    @State private var password = ""
+    @State private var isSignUp = false
+
+    var body: some View {
+        VStack {
+            Text(isSignUp ? "Sign Up" : "Login").font(.largeTitle)
+
+            // Conditionally apply autocapitalization/autocorrection for platforms that support UIKit (iOS/tvOS)
+            #if canImport(UIKit)
+            TextField("Username", text: $username)
+                .autocapitalization(.none)
+                .disableAutocorrection(true)
+            #else
+            TextField("Username", text: $username)
+            #endif
+
+            SecureField("Password", text: $password)
+
+            if let error = vm.loginError {
+                Text(error).foregroundColor(.red)
+            }
+
+            Button(isSignUp ? "Sign Up" : "Login") {
+                if isSignUp {
+                    if vm.signUp(username: username, password: password) {
+                        isSignUp = false
+                        vm.login(username: username, password: password)
+                    } else {
+                        if vm.loginError == nil { vm.loginError = "Username already exists" }
+                    }
+                } else {
+                    _ = vm.login(username: username, password: password)
+                }
+            }
+            .padding()
+
+            Button(isSignUp ? "Already have an account? Login" : "No account? Sign Up") {
+                isSignUp.toggle()
+            }
+        }
+        .padding()
+    }
+}
+
+struct MainMenuView: View {
+    @ObservedObject var vm: StudyAppViewModel
+    @State private var friendUsername = ""
+    @State private var showLeaderboard = false
+
+    var body: some View {
+        VStack(spacing: 20) {
+            if let user = vm.currentUser {
+                Text("Hello, \(user.id)! Points: \(user.points)").font(.headline)
+
+                if !user.friendRequests.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Friend Requests:").bold()
+                        ForEach(user.friendRequests, id: \.self) { req in
+                            HStack {
+                                Text(req)
+                                Spacer()
+                                Button("Accept") { vm.acceptFriendRequest(from: req) }
+                            }
+                        }
+                    }
+                }
+
+                HStack {
+                    #if canImport(UIKit)
+                    TextField("Friend's username", text: $friendUsername)
+                        .autocapitalization(.none)
+                        .disableAutocorrection(true)
+                    #else
+                    TextField("Friend's username", text: $friendUsername)
+                    #endif
+
+                    Button("Add Friend") {
+                        vm.sendFriendRequest(to: friendUsername)
+                        friendUsername = ""
+                    }
+                }
+
+                Button("Study +2 pts") { vm.studyHour() }
+
+                Button("Leaderboard") { showLeaderboard = true }
+                    .sheet(isPresented: $showLeaderboard) {
+                        LeaderboardView(vm: vm)
+                    }
+
+                Button("Rewards") { vm.showRewardSheet = true }
+                    .sheet(isPresented: $vm.showRewardSheet) {
+                        RewardSheetView(vm: vm)
+                    }
+
+                Button("Logout") { vm.logout() }
+
+                // Inline leaderboard
+                LeaderboardView(vm: vm)
+            }
+        }
+        .padding()
+    }
+}
+
+struct LeaderboardView: View {
+    @ObservedObject var vm: StudyAppViewModel
+
+    var body: some View {
+        VStack {
+            Text("Leaderboard (You & Friends)").bold()
+            ForEach(vm.leaderboard()) { user in
+                HStack {
+                    Text(user.id)
+                    Spacer()
+                    Text("\(user.points) pts")
+                    if user.id == vm.currentUser?.id { Text("(You)").italic() }
+                }
+            }
+        }
+        .padding()
+    }
+}
+
+struct RewardSheetView: View {
+    @ObservedObject var vm: StudyAppViewModel
+
+    var body: some View {
+        VStack {
+            Text("Rewards (10 points each)").font(.headline)
+            ForEach(Reward.allCases, id: \.self) { reward in
+                Button(reward.rawValue) {
+                    if vm.canRedeemReward() || reward == .keepPoints {
+                        vm.redeemReward(reward)
+                    }
+                }
+                .disabled(!(vm.canRedeemReward() || reward == .keepPoints))
+            }
+            Button("Close") { vm.showRewardSheet = false }
+        }
+        .padding()
+    }
+}
+
+// MARK: - App Entry
+
+struct ContentView: View {
+    @StateObject var vm = StudyAppViewModel()
+    var body: some View {
+        if vm.currentUser == nil {
+            LoginView(vm: vm)
+        } else {
+            MainMenuView(vm: vm)
+        }
+    }
+}
+
+@main
+struct StudyAppMain: App {
+    var body: some Scene {
+        WindowGroup {
+            ContentView()
+        }
+    }
+}
