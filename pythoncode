@@ -8,7 +8,16 @@ class StudyApp:
         self.data_file = "studyapp_data.json"
         self.load_data()
         self.last_study_time = {}
-        self.pomodoro_config = {"work": 25, "break": 5}  # minutes
+        self.pomodoro_config = {"work": 25, "break": 5}
+        self.study_history = {}
+        self.flashcard_stats = {}
+        self.user_type = {}
+        self.child_accounts = {}
+        self.teacher_students = {}
+        self.time_limits = {}
+        self.group_challenges = {}
+        self.study_materials = {}
+        self.notifications = {}
 
     def load_data(self):
         if os.path.exists(self.data_file):
@@ -27,6 +36,15 @@ class StudyApp:
                 self.past_usernames = data.get("past_usernames", [])
                 self.friend_requests = data.get("friend_requests", {})
                 self.reminders = data.get("reminders", {})
+                self.study_history = data.get("study_history", {})
+                self.flashcard_stats = data.get("flashcard_stats", {})
+                self.user_type = data.get("user_type", {})
+                self.child_accounts = data.get("child_accounts", {})
+                self.teacher_students = data.get("teacher_students", {})
+                self.time_limits = data.get("time_limits", {})
+                self.group_challenges = data.get("group_challenges", {})
+                self.study_materials = data.get("study_materials", {})
+                self.notifications = data.get("notifications", {})
         else:
             self.accounts = {}
             self.security_questions = {}
@@ -41,6 +59,15 @@ class StudyApp:
             self.past_usernames = []
             self.friend_requests = {}
             self.reminders = {}
+            self.study_history = {}
+            self.flashcard_stats = {}
+            self.user_type = {}
+            self.child_accounts = {}
+            self.teacher_students = {}
+            self.time_limits = {}
+            self.group_challenges = {}
+            self.study_materials = {}
+            self.notifications = {}
         self.current_user = None
 
     def save_data(self):
@@ -58,26 +85,62 @@ class StudyApp:
             "past_usernames": self.past_usernames,
             "friend_requests": self.friend_requests,
             "reminders": self.reminders,
+            "study_history": self.study_history,
+            "flashcard_stats": self.flashcard_stats,
+            "user_type": self.user_type,
+            "child_accounts": self.child_accounts,
+            "teacher_students": self.teacher_students,
+            "time_limits": self.time_limits,
+            "group_challenges": self.group_challenges,
+            "study_materials": self.study_materials,
+            "notifications": self.notifications,
         }
         with open(self.data_file, "w") as f:
             json.dump(data, f)
 
     def ensure_user(self, username):
-        if username not in self.points: self.points[username] = 0
-        if username not in self.friends: self.friends[username] = []
-        if username not in self.flashcards: self.flashcards[username] = []
-        if username not in self.daily_challenges: self.daily_challenges[username] = []
-        if username not in self.calendar: self.calendar[username] = {}
-        if username not in self.rewards: self.rewards[username] = []
-        if username not in self.failed_attempts: self.failed_attempts[username] = 0
-        if username not in self.locks: self.locks[username] = 0
-        if username not in self.friend_requests: self.friend_requests[username] = []
-        if username not in self.reminders: self.reminders[username] = []
-        if username not in self.security_questions: self.security_questions[username] = {"question": "", "answer": ""}
+        # Always preserve type if already set
+        if username not in self.user_type:
+            self.user_type[username] = "student"
+        if username not in self.points:
+            self.points[username] = 0
+        if username not in self.friends:
+            self.friends[username] = []
+        if username not in self.flashcards:
+            self.flashcards[username] = []
+        if username not in self.daily_challenges:
+            self.daily_challenges[username] = []
+        if username not in self.calendar:
+            self.calendar[username] = {}
+        if username not in self.rewards:
+            self.rewards[username] = []
+        if username not in self.failed_attempts:
+            self.failed_attempts[username] = 0
+        if username not in self.locks:
+            self.locks[username] = 0
+        if username not in self.friend_requests:
+            self.friend_requests[username] = []
+        if username not in self.reminders:
+            self.reminders[username] = []
+        if username not in self.study_history:
+            self.study_history[username] = []
+        if username not in self.flashcard_stats:
+            self.flashcard_stats[username] = {"correct": 0, "total": 0}
+        if username not in self.time_limits:
+            self.time_limits[username] = 1440
+        if username not in self.study_materials:
+            self.study_materials[username] = []
+        if username not in self.notifications:
+            self.notifications[username] = []
+        if username not in self.child_accounts and self.user_type[username] == "parent":
+            self.child_accounts[username] = []
+        if username not in self.teacher_students and self.user_type[username] == "teacher":
+            self.teacher_students[username] = []
 
     def start_screen(self):
         print("Welcome to Study App!")
         self.check_due_reminders()
+        self.check_due_notifications()
         while True:
             self.login_flow()
 
@@ -100,6 +163,7 @@ class StudyApp:
             print("Login successful!")
             self.check_friend_requests(username)
             self.check_due_reminders()
+            self.check_due_notifications()
             self.loading_screen()
         else:
             print("Incorrect credentials.")
@@ -119,6 +183,25 @@ class StudyApp:
                 self.locks[username] = 0
             self.save_data()
             return
+        self.save_data()
+
+    def check_friend_requests(self, username):
+        pending = self.friend_requests[username]
+        if pending:
+            print("\nYou have friend requests from:")
+            for requester in pending:
+                print(f"- {requester}")
+            to_accept = input("Enter usernames to accept (comma-separated, or blank to ignore): ")
+            accepted = [u.strip() for u in to_accept.split(',') if u.strip()]
+            for req in accepted:
+                if req in pending:
+                    if req not in self.friends[username]:
+                        self.friends[username].append(req)
+                    if username not in self.friends[req]:
+                        self.friends[req].append(username)
+                    print(f"Accepted friend request from {req}.")
+                    pending.remove(req)
+            self.friend_requests[username] = [req for req in pending if req not in accepted]
         self.save_data()
 
     def check_credentials(self, username, password):
@@ -152,10 +235,14 @@ class StudyApp:
         if password != confirm:
             print("Passwords do not match.")
             return
+        usertype = input("Are you a student, parent, or teacher? (default: student): ").strip().lower()
+        if usertype not in ["student", "parent", "teacher"]:
+            usertype = "student"
         question = input("Set a security question (for password reset): ")
         answer = input("Set the answer: ")
         self.accounts[username] = password
         self.security_questions[username] = {"question": question, "answer": answer}
+        self.user_type[username] = usertype
         self.ensure_user(username)
         print("Account created! Please login.")
         self.save_data()
@@ -166,29 +253,479 @@ class StudyApp:
 
     def menu(self):
         while True:
-            print("\nWhat screen to go to?")
-            print("1. Study Timer\n2. Flashcards\n3. Data Planner\n4. Daily Challenges\n5. Set Reminder\n6. End")
-            choice = input("Choice: ")
-            if choice == "1": self.study_timer_menu()
-            elif choice == "2": self.flashcards_menu()
-            elif choice == "3": self.data_planner()
-            elif choice == "4": self.daily_challenges_menu()
-            elif choice == "5": self.set_reminder()
-            elif choice == "6":
-                print("Goodbye!")
-                self.save_data()
-                break
-            else: print("Invalid choice.")
+            usertype = self.user_type.get(self.current_user, "student")
+            options = [
+                ("Study Timer", self.study_timer_menu),
+                ("Flashcards", self.flashcards_menu),
+                ("Data Planner", self.data_planner),
+                ("Daily Challenges", self.daily_challenges_menu),
+                ("Set Reminder", self.set_reminder),
+                ("Stats", self.stats_menu),
+                ("Group Challenges", self.group_challenges_menu),
+                ("Study Materials (Upload/Highlight)", self.study_materials_menu),
+                ("Set Push Notification", self.push_notification_menu),
+            ]
+            if usertype == "student":
+                options.append(("View Teacher Assignments", self.view_teacher_assignments))
+            if usertype == "parent":
+                options.append(("Parental Controls", self.parent_menu))
+            if usertype == "teacher":
+                options.append(("Teacher Dashboard", self.teacher_menu))
+            options.append(("Log out", None))
+            print(f"\nWhat screen to go to? (You are a {usertype})")
+            for idx, (label, _) in enumerate(options, 1):
+                print(f"{idx}. {label}")
+            choice = input("Choice: ").strip()
+            try:
+                choice_num = int(choice)
+                if 1 <= choice_num <= len(options):
+                    if options[choice_num - 1][1] is None:
+                        print("Logging out...\n")
+                        self.save_data()
+                        self.current_user = None
+                        return
+                    else:
+                        options[choice_num - 1][1]()
+                else:
+                    print("Invalid choice.")
+            except ValueError:
+                print("Invalid choice.")
 
-    # ----------------- Study Timer -----------------
+    def flashcards_menu(self):
+        options = [
+            ("Create Flashcard", self.create_flashcard),
+            ("Study Flashcards", self.study_flashcards),
+            ("Back", None)
+        ]
+        while True:
+            print("\nFlashcards Menu")
+            for idx, (label, _) in enumerate(options, 1):
+                print(f"{idx}. {label}")
+            choice = input("Choice: ").strip()
+            try:
+                choice_num = int(choice)
+                if 1 <= choice_num <= len(options):
+                    if options[choice_num - 1][1] is None:
+                        return
+                    else:
+                        options[choice_num - 1][1]()
+                else:
+                    print("Invalid choice.")
+            except ValueError:
+                print("Invalid choice.")
+
+    def daily_challenges_menu(self):
+        options = [
+            ("Generate New Challenge", self.generate_challenge),
+            ("Answer Challenge", self.answer_challenge),
+            ("Back", None)
+        ]
+        while True:
+            print("\nDaily Challenges Menu")
+            for idx, (label, _) in enumerate(options, 1):
+                print(f"{idx}. {label}")
+            choice = input("Choice: ").strip()
+            try:
+                choice_num = int(choice)
+                if 1 <= choice_num <= len(options):
+                    if options[choice_num - 1][1] is None:
+                        return
+                    else:
+                        options[choice_num - 1][1]()
+                else:
+                    print("Invalid choice.")
+            except ValueError:
+                print("Invalid choice.")
+
+    def parent_menu(self):
+        options = [
+            ("View linked child accounts", self.parent_view_children),
+            ("Add child account", self.parent_add_child),
+            ("Set daily study time limit for child", self.parent_set_limit),
+            ("View child's statistics", self.parent_child_stats),
+            ("Back", None)
+        ]
+        while True:
+            print("\n--- Parental Controls ---")
+            for idx, (label, _) in enumerate(options, 1):
+                print(f"{idx}. {label}")
+            choice = input("Choice: ").strip()
+            try:
+                choice_num = int(choice)
+                if 1 <= choice_num <= len(options):
+                    if options[choice_num - 1][1] is None:
+                        return
+                    else:
+                        options[choice_num - 1][1]()
+                else:
+                    print("Invalid choice.")
+            except ValueError:
+                print("Invalid choice.")
+
+    def parent_view_children(self):
+        print("Children:", ", ".join(self.child_accounts.get(self.current_user, [])))
+
+    def parent_add_child(self):
+        child = input("Enter child's username: ")
+        if child in self.accounts:
+            self.ensure_user(child)
+            if self.user_type[child] == "student":
+                if child not in self.child_accounts[self.current_user]:
+                    self.child_accounts[self.current_user].append(child)
+                print("Child linked.")
+                self.save_data()
+            else:
+                print("No such student account.")
+        else:
+            print("No such student account.")
+
+    def parent_set_limit(self):
+        child = input("Enter child's username: ")
+        try:
+            limit = int(input("Set daily time limit in minutes: "))
+            self.time_limits[child] = limit
+            self.save_data()
+            print("Limit set.")
+        except:
+            print("Invalid input.")
+
+    def parent_child_stats(self):
+        child = input("Enter child's username: ")
+        if child in self.child_accounts.get(self.current_user, []):
+            self.stats_menu(child)
+        else:
+            print("Not your child.")
+
+    def teacher_menu(self):
+        options = [
+            ("View students", self.teacher_view_students),
+            ("Add student", self.teacher_add_student),
+            ("Assign daily challenge to student", self.teacher_assign_challenge),
+            ("View student statistics", self.teacher_view_student_stats),
+            ("Back", None)
+        ]
+        while True:
+            print("\n--- Teacher Dashboard ---")
+            for idx, (label, _) in enumerate(options, 1):
+                print(f"{idx}. {label}")
+            choice = input("Choice: ").strip()
+            try:
+                choice_num = int(choice)
+                if 1 <= choice_num <= len(options):
+                    if options[choice_num - 1][1] is None:
+                        return
+                    else:
+                        options[choice_num - 1][1]()
+                else:
+                    print("Invalid choice.")
+            except ValueError:
+                print("Invalid choice.")
+
+    def teacher_view_students(self):
+        print("Students:", ", ".join(self.teacher_students.get(self.current_user, [])))
+
+    def teacher_add_student(self):
+        stu = input("Enter student's username: ")
+        if stu in self.accounts:
+            self.ensure_user(stu)
+            if self.user_type[stu] == "student":
+                if stu not in self.teacher_students[self.current_user]:
+                    self.teacher_students[self.current_user].append(stu)
+                print("Student linked.")
+                self.save_data()
+            else:
+                print("That user is not a student account.")
+        else:
+            print("No such student account.")
+
+    def teacher_assign_challenge(self):
+        stu = input("Enter student's username: ")
+        if stu in self.teacher_students.get(self.current_user, []):
+            q = input("Enter challenge question: ")
+            a = input("Enter challenge answer: ")
+            self.daily_challenges[stu].append({"question": q, "answer": a, "attempted": False})
+            self.save_data()
+            print("Challenge assigned.")
+        else:
+            print("Not your student.")
+
+    def teacher_view_student_stats(self):
+        stu = input("Enter student's username: ")
+        if stu in self.teacher_students.get(self.current_user, []):
+            self.stats_menu(stu)
+        else:
+            print("Not your student.")
+
     def study_timer_menu(self):
-        print("\nStudy Timer Menu")
-        print("1. Pomodoro (25m work/5m break)")
-        print("2. Custom Timer")
-        choice = input("Choice: ")
-        if choice == "1": self.pomodoro_timer()
-        elif choice == "2": self.custom_study_timer()
-        else: print("Invalid choice.")
+        options = [
+            ("Pomodoro (25m work/5m break)", self.pomodoro_timer),
+            ("Custom Timer", self.custom_study_timer),
+            ("Back", None)
+        ]
+        while True:
+            print("\nStudy Timer Menu")
+            for idx, (label, _) in enumerate(options, 1):
+                print(f"{idx}. {label}")
+            choice = input("Choice: ").strip()
+            try:
+                choice_num = int(choice)
+                if 1 <= choice_num <= len(options):
+                    if options[choice_num - 1][1] is None:
+                        return
+                    else:
+                        options[choice_num - 1][1]()
+                else:
+                    print("Invalid choice.")
+            except ValueError:
+                print("Invalid choice.")
+
+    def group_challenges_menu(self):
+        options = [
+            ("Create Challenge", self.group_create),
+            ("Join Challenge", self.group_join),
+            ("Add Points", self.group_add_points),
+            ("View Leaderboard", self.group_leaderboard),
+            ("Back", None)
+        ]
+        while True:
+            print("\nGroup Challenges")
+            for idx, (label, _) in enumerate(options, 1):
+                print(f"{idx}. {label}")
+            choice = input("Choice: ").strip()
+            try:
+                choice_num = int(choice)
+                if 1 <= choice_num <= len(options):
+                    if options[choice_num - 1][1] is None:
+                        self.save_data()
+                        return
+                    else:
+                        options[choice_num - 1][1]()
+                else:
+                    print("Invalid choice.")
+            except ValueError:
+                print("Invalid choice.")
+
+    def group_create(self):
+        name = input("Challenge name: ")
+        if name in self.group_challenges:
+            print("Challenge name taken.")
+            return
+        self.group_challenges[name] = {
+            "participants": [self.current_user],
+            "scores": {self.current_user: 0},
+            "active": True
+        }
+        print("Challenge created and joined!")
+
+    def group_join(self):
+        name = input("Challenge to join: ")
+        if name not in self.group_challenges or not self.group_challenges[name]["active"]:
+            print("No such active challenge.")
+            return
+        if self.current_user not in self.group_challenges[name]["participants"]:
+            self.group_challenges[name]["participants"].append(self.current_user)
+            self.group_challenges[name]["scores"][self.current_user] = 0
+            print(f"Joined {name}!")
+        else:
+            print("You are already in this challenge.")
+
+    def group_add_points(self):
+        name = input("Challenge name: ")
+        if name not in self.group_challenges:
+            print("No such challenge.")
+            return
+        pts = int(input("Points to add: "))
+        self.group_challenges[name]["scores"][self.current_user] = self.group_challenges[name]["scores"].get(self.current_user, 0) + pts
+        print(f"{pts} points added to your challenge score.")
+
+    def group_leaderboard(self):
+        name = input("Challenge name: ")
+        if name not in self.group_challenges:
+            print("No such challenge.")
+            return
+        print(f"Leaderboard for {name}:")
+        scores = self.group_challenges[name]["scores"]
+        for uname, pts in sorted(scores.items(), key=lambda x: x[1], reverse=True):
+            print(f"{uname}: {pts}")
+
+    def study_materials_menu(self):
+        options = [
+            ("Upload Material", self.study_materials_upload),
+            ("View Materials & Highlight Key Info", self.study_materials_view),
+            ("Back", None)
+        ]
+        while True:
+            print("\nStudy Materials")
+            for idx, (label, _) in enumerate(options, 1):
+                print(f"{idx}. {label}")
+            choice = input("Choice: ").strip()
+            try:
+                choice_num = int(choice)
+                if 1 <= choice_num <= len(options):
+                    if options[choice_num - 1][1] is None:
+                        self.save_data()
+                        return
+                    else:
+                        options[choice_num - 1][1]()
+                else:
+                    print("Invalid choice.")
+            except ValueError:
+                print("Invalid choice.")
+
+    def study_materials_upload(self):
+        fname = input("Filename (simulated, e.g. slide1.pdf): ")
+        print("Paste or type the extracted text from your slide/worksheet below (end with a single line with just 'END'):")
+        lines = []
+        while True:
+            line = input()
+            if line.strip() == "END":
+                break
+            lines.append(line)
+        text = "\n".join(lines)
+        self.study_materials[self.current_user].append({"file": fname, "text": text, "key_info": []})
+        print("Material uploaded.")
+
+    def study_materials_view(self):
+        mats = self.study_materials[self.current_user]
+        if not mats:
+            print("No materials uploaded.")
+            return
+        for idx, mat in enumerate(mats):
+            print(f"\nMaterial {idx+1}: {mat['file']}")
+            print("Extracted text:")
+            print(mat['text'])
+            print("Key info so far:", mat.get("key_info", []))
+            if input("Highlight more key info? (y/n): ").lower() == "y":
+                highlight = input("Paste or type key phrase to highlight: ")
+                mat.setdefault("key_info", []).append(highlight)
+        print("Updated key info.")
+
+    def push_notification_menu(self):
+        print("\nPush Notification (Simulated)")
+        title = input("Notification title: ")
+        body = input("Notification body: ")
+        time_str = input("When? (YYYY-MM-DD HH:MM): ")
+        try:
+            notif_time = datetime.strptime(time_str, "%Y-%m-%d %H:%M")
+        except ValueError:
+            print("Invalid time format.")
+            return
+        self.notifications[self.current_user].append({
+            "title": title,
+            "body": body,
+            "time": notif_time.strftime("%Y-%m-%d %H:%M")
+        })
+        print("Notification scheduled!")
+        self.save_data()
+
+    # --- Core methods ---
+    def stats_menu(self, user=None):
+        if user is None:
+            user = self.current_user
+        print(f"\n--- Statistics for {user} ---")
+        today = datetime.now().date()
+        streak = 0
+        last = None
+        days = sorted(set([datetime.strptime(ts, "%Y-%m-%d %H:%M").date() for ts in self.study_history.get(user,[])]), reverse=True)
+        for i, d in enumerate(days):
+            if i == 0:
+                if d == today:
+                    streak = 1
+                    last = d
+                else:
+                    break
+            else:
+                if last and (last - d == timedelta(days=1)):
+                    streak += 1
+                    last = d
+                else:
+                    break
+        print(f"Current study streak: {streak} days")
+        total_sessions = len(self.study_history.get(user,[]))
+        print(f"Study sessions: {total_sessions}")
+        stats = self.flashcard_stats.get(user, {"correct": 0, "total": 0})
+        print(f"Flashcard accuracy: {stats['correct']}/{stats['total']} correct "
+              f"({(stats['correct']/stats['total']*100 if stats['total'] else 0):.1f}%)")
+        print(f"Total points: {self.points.get(user,0)}")
+        print("-----------------------------------")
+        input("Press Enter to return to menu...")
+
+    def create_flashcard(self):
+        question = input("Enter question: ")
+        answer = input("Enter answer: ")
+        self.flashcards[self.current_user].append((question, answer))
+        print("Flashcard created.")
+
+    def study_flashcards(self):
+        cards = self.flashcards[self.current_user]
+        if not cards:
+            print("No flashcards to study.")
+            return
+        for q, a in cards:
+            print(f"Q: {q}")
+            input("Press Enter to show answer...")
+            print(f"A: {a}")
+            answer = input("Your answer (type it): ")
+            correct = answer.strip().lower() == a.strip().lower()
+            self.flashcard_stats[self.current_user]['total'] += 1
+            if correct:
+                print("Correct!")
+                self.flashcard_stats[self.current_user]['correct'] += 1
+            else:
+                print("Incorrect.")
+            print(f"Current accuracy: {self.flashcard_stats[self.current_user]['correct']}/{self.flashcard_stats[self.current_user]['total']}")
+        self.save_data()
+
+    def data_planner(self):
+        print("\nData Planner")
+        date = input("Enter date to plan (YYYY-MM-DD): ")
+        subject = input("Enter subject/task: ")
+        self.calendar[self.current_user][date] = subject
+        print(f"Planned '{subject}' for {date}.")
+        today = input("Is this for today? (y/n): ").lower() == "y"
+        if today:
+            print(f"Reminder: Study '{subject}' today!")
+            self.points[self.current_user] += 1
+        self.leaderboard()
+
+    def generate_challenge(self):
+        q = input("Enter challenge question: ")
+        a = input("Enter challenge answer: ")
+        self.daily_challenges[self.current_user].append({"question": q, "answer": a, "attempted": False})
+        print("Challenge generated.")
+
+    def answer_challenge(self):
+        challenges = [c for c in self.daily_challenges[self.current_user] if not c.get("attempted", False)]
+        if not challenges:
+            print("No available challenges.")
+            return
+        for c in challenges:
+            print(f"Challenge: {c['question']}")
+            answer = input("Your answer: ")
+            if answer.strip().lower() == c["answer"].strip().lower():
+                print("Correct!")
+                self.points[self.current_user] += 1
+                c["attempted"] = True
+                print("You earned 1 point!")
+            else:
+                print("Incorrect. Please try again later.")
+        self.leaderboard()
+
+    def grant_study_points(self, duration):
+        now = datetime.now()
+        user = self.current_user
+        limit = self.time_limits.get(user, 1440)
+        today = now.date()
+        studied_today = sum(1 for ts in self.study_history.get(user,[]) if datetime.strptime(ts, "%Y-%m-%d %H:%M").date()==today)
+        if studied_today >= limit:
+            print(f"You have reached your daily study time limit: {limit} minutes.")
+            return
+        pts = max(1, duration // 25 * 2)
+        self.points[user] += pts
+        print(f"You earned {pts} points!")
+        self.last_study_time[user] = now
+        self.study_history.setdefault(user, []).append(now.strftime("%Y-%m-%d %H:%M"))
+        self.save_data()
 
     def pomodoro_timer(self):
         work = self.pomodoro_config["work"]
@@ -225,103 +762,6 @@ class StudyApp:
             time.sleep(1)
         print("\nTimer done.")
 
-    def grant_study_points(self, duration):
-        now = datetime.now()
-        user = self.current_user
-        last_time = self.last_study_time.get(user)
-        if last_time and (now - last_time) < timedelta(minutes=10):
-            print("You must wait at least 10 minutes between point-earning study sessions.")
-            return
-        pts = max(1, duration // 25 * 2)
-        self.points[user] += pts
-        print(f"You earned {pts} points!")
-        self.last_study_time[user] = now
-        self.save_data()
-
-    # ----------------- Flashcards -----------------
-    def flashcards_menu(self):
-        while True:
-            print("\nFlashcards Menu")
-            print("1. Create Flashcard\n2. Study Flashcards\n3. Back")
-            choice = input("Choice: ")
-            if choice == "1": self.create_flashcard()
-            elif choice == "2": self.study_flashcards()
-            elif choice == "3": break
-            else: print("Invalid choice.")
-
-    def create_flashcard(self):
-        question = input("Enter question: ")
-        answer = input("Enter answer: ")
-        self.flashcards[self.current_user].append((question, answer))
-        print("Flashcard created.")
-        self.save_data()
-
-    def study_flashcards(self):
-        cards = self.flashcards[self.current_user]
-        if not cards:
-            print("No flashcards to study.")
-            return
-        for q, a in cards:
-            print(f"Q: {q}")
-            input("Press Enter to show answer...")
-            print(f"A: {a}")
-            level = input("Select difficulty (easy/medium/hard): ").lower()
-            points = {"easy": 1, "medium": 2, "hard": 3}.get(level, 1)
-            self.points[self.current_user] += points
-            print(f"You earned {points} points!")
-        self.save_data()
-        self.leaderboard()
-
-    # ----------------- Data Planner -----------------
-    def data_planner(self):
-        print("\nData Planner")
-        date = input("Enter date to plan (YYYY-MM-DD): ")
-        subject = input("Enter subject/task: ")
-        self.calendar[self.current_user][date] = subject
-        print(f"Planned '{subject}' for {date}.")
-        today = input("Is this for today? (y/n): ").lower() == "y"
-        if today:
-            print(f"Reminder: Study '{subject}' today!")
-            self.points[self.current_user] += 1
-        self.save_data()
-        self.leaderboard()
-
-    # ----------------- Daily Challenges -----------------
-    def daily_challenges_menu(self):
-        while True:
-            print("\nDaily Challenges Menu")
-            print("1. Generate New Challenge\n2. Answer Challenge\n3. Back")
-            choice = input("Choice: ")
-            if choice == "1": self.generate_challenge()
-            elif choice == "2": self.answer_challenge()
-            elif choice == "3": break
-            else: print("Invalid choice.")
-
-    def generate_challenge(self):
-        q = input("Enter challenge question: ")
-        a = input("Enter challenge answer: ")
-        self.daily_challenges[self.current_user].append({"question": q, "answer": a, "attempted": False})
-        print("Challenge generated.")
-        self.save_data()
-
-    def answer_challenge(self):
-        challenges = [c for c in self.daily_challenges[self.current_user] if not c["attempted"]]
-        if not challenges:
-            print("No pending challenges.")
-            return
-        for c in challenges:
-            print(f"Challenge: {c['question']}")
-            ans = input("Your answer: ")
-            if ans.strip().lower() == c["answer"].strip().lower():
-                print("Correct!")
-                self.points[self.current_user] += 2
-            else:
-                print(f"Wrong! Correct answer: {c['answer']}")
-            c["attempted"] = True
-        self.save_data()
-        self.leaderboard()
-
-    # ----------------- Reminders -----------------
     def set_reminder(self):
         user = self.current_user
         print("Set a reminder for your study session or challenge.")
@@ -345,7 +785,6 @@ class StudyApp:
             self.reminders[user] = [r for r in rems if r not in due]
         self.save_data()
 
-    # ----------------- Leaderboard & Rewards -----------------
     def leaderboard(self):
         print(f"\nLeaderboard - Your points: {self.points[self.current_user]}")
         friends_and_you = [self.current_user] + self.friends[self.current_user]
@@ -392,24 +831,30 @@ class StudyApp:
             print(f"You redeemed: {reward} (10 points used).")
         self.save_data()
 
-    # ----------------- Friend Requests -----------------
-    def check_friend_requests(self, username):
-        pending = self.friend_requests[username]
-        if pending:
-            print("\nYou have friend requests from:")
-            for requester in pending:
-                print(f"- {requester}")
-            to_accept = input("Enter usernames to accept (comma-separated, or blank to ignore): ")
-            accepted = [u.strip() for u in to_accept.split(',') if u.strip()]
-            for req in accepted:
-                if req in pending:
-                    if req not in self.friends[username]:
-                        self.friends[username].append(req)
-                    if username not in self.friends[req]:
-                        self.friends[req].append(username)
-                    print(f"Accepted friend request from {req}.")
-                    pending.remove(req)
-            self.friend_requests[username] = [req for req in pending if req not in accepted]
+    def view_teacher_assignments(self):
+        challenges = [c for c in self.daily_challenges[self.current_user] if not c.get("attempted", False)]
+        if not challenges:
+            print("No teacher assignments or all completed!")
+            return
+        for idx, c in enumerate(challenges, 1):
+            print(f"\nAssignment {idx}: {c['question']}")
+            answer = input("Your answer: ")
+            if answer.strip().lower() == c["answer"].strip().lower():
+                print("Correct!")
+                self.points[self.current_user] += 1
+                c["attempted"] = True
+                print("You earned 1 point!")
+            else:
+                print("Incorrect. Please try again later.")
+        self.save_data()
+
+    def check_due_notifications(self):
+        now = datetime.now()
+        for user, notifs in self.notifications.items():
+            due = [n for n in notifs if datetime.strptime(n['time'], "%Y-%m-%d %H:%M") <= now]
+            for n in due:
+                print(f"\n[NOTIFICATION for {user}]: {n['title']} - {n['body']} (Scheduled: {n['time']})")
+            self.notifications[user] = [n for n in notifs if n not in due]
         self.save_data()
 
 
