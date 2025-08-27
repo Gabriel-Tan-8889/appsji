@@ -18,6 +18,7 @@ class StudyApp:
         self.group_challenges = {}
         self.study_materials = {}
         self.notifications = {}
+        self.study_assignments = {}  # NEW: Store teacher study time assignments
 
     def load_data(self):
         if os.path.exists(self.data_file):
@@ -45,6 +46,7 @@ class StudyApp:
                 self.group_challenges = data.get("group_challenges", {})
                 self.study_materials = data.get("study_materials", {})
                 self.notifications = data.get("notifications", {})
+                self.study_assignments = data.get("study_assignments", {})  # NEW
         else:
             self.accounts = {}
             self.security_questions = {}
@@ -68,6 +70,7 @@ class StudyApp:
             self.group_challenges = {}
             self.study_materials = {}
             self.notifications = {}
+            self.study_assignments = {}  # NEW
         self.current_user = None
 
     def save_data(self):
@@ -94,6 +97,7 @@ class StudyApp:
             "group_challenges": self.group_challenges,
             "study_materials": self.study_materials,
             "notifications": self.notifications,
+            "study_assignments": self.study_assignments,  # NEW
         }
         with open(self.data_file, "w") as f:
             json.dump(data, f)
@@ -132,6 +136,8 @@ class StudyApp:
             self.study_materials[username] = []
         if username not in self.notifications:
             self.notifications[username] = []
+        if username not in self.study_assignments:  # NEW
+            self.study_assignments[username] = []
         if username not in self.child_accounts and self.user_type[username] == "parent":
             self.child_accounts[username] = []
         if username not in self.teacher_students and self.user_type[username] == "teacher":
@@ -164,6 +170,7 @@ class StudyApp:
             self.check_friend_requests(username)
             self.check_due_reminders()
             self.check_due_notifications()
+            self.check_study_assignments()  # NEW: Check assignments on login
             self.loading_screen()
         else:
             print("Incorrect credentials.")
@@ -184,6 +191,31 @@ class StudyApp:
             self.save_data()
             return
         self.save_data()
+
+    # NEW METHOD: Check study assignments on login
+    def check_study_assignments(self):
+        assignments = self.study_assignments.get(self.current_user, [])
+        active_assignments = [a for a in assignments if not a.get('completed', False)]
+
+        if active_assignments:
+            print(f"\n📚 You have {len(active_assignments)} active study assignment(s):")
+            for i, assignment in enumerate(active_assignments, 1):
+                completed_time = assignment.get('completed_minutes', 0)
+                remaining_time = assignment['total_minutes'] - completed_time
+                due_date = assignment.get('due_date', 'No due date')
+
+                print(f"{i}. Subject: {assignment['subject']}")
+                print(f"   Total required: {assignment['total_minutes']} minutes")
+                print(f"   Completed: {completed_time} minutes")
+                print(f"   Remaining: {remaining_time} minutes")
+                print(f"   Due: {due_date}")
+                print(f"   From teacher: {assignment['teacher']}")
+
+                # Show progress bar
+                progress = (completed_time / assignment['total_minutes']) * 100
+                progress_bar = "█" * int(progress // 5) + "░" * (20 - int(progress // 5))
+                print(f"   Progress: [{progress_bar}] {progress:.1f}%")
+                print()
 
     def check_friend_requests(self, username):
         pending = self.friend_requests[username]
@@ -267,6 +299,7 @@ class StudyApp:
             ]
             if usertype == "student":
                 options.append(("View Teacher Assignments", self.view_teacher_assignments))
+                options.append(("View Study Assignments", self.view_study_assignments))  # NEW
             if usertype == "parent":
                 options.append(("Parental Controls", self.parent_menu))
             if usertype == "teacher":
@@ -290,6 +323,35 @@ class StudyApp:
                     print("Invalid choice.")
             except ValueError:
                 print("Invalid choice.")
+
+    # NEW METHOD: Students can view their study assignments
+    def view_study_assignments(self):
+        assignments = self.study_assignments.get(self.current_user, [])
+        if not assignments:
+            print("No study assignments found.")
+            return
+
+        print("\n=== Your Study Assignments ===")
+        for i, assignment in enumerate(assignments, 1):
+            completed_time = assignment.get('completed_minutes', 0)
+            remaining_time = assignment['total_minutes'] - completed_time
+            status = "✅ COMPLETED" if assignment.get('completed', False) else "📝 IN PROGRESS"
+
+            print(f"\n{i}. {assignment['subject']} - {status}")
+            print(f"   Teacher: {assignment['teacher']}")
+            print(f"   Total required: {assignment['total_minutes']} minutes")
+            print(f"   Completed: {completed_time} minutes")
+            print(f"   Remaining: {remaining_time} minutes")
+            print(f"   Due: {assignment.get('due_date', 'No due date')}")
+            print(f"   Instructions: {assignment.get('instructions', 'No additional instructions')}")
+
+            # Show progress bar
+            progress = (completed_time / assignment['total_minutes']) * 100
+            progress_bar = "█" * int(progress // 5) + "░" * (20 - int(progress // 5))
+            print(f"   Progress: [{progress_bar}] {progress:.1f}%")
+
+        print("\nTip: Use the Study Timer to work on these assignments. Time will be automatically tracked!")
+        input("\nPress Enter to continue...")
 
     def flashcards_menu(self):
         options = [
@@ -343,6 +405,7 @@ class StudyApp:
             ("Add child account", self.parent_add_child),
             ("Set daily study time limit for child", self.parent_set_limit),
             ("View child's statistics", self.parent_child_stats),
+            ("View child's study time details", self.parent_view_study_time),  # NEW
             ("Back", None)
         ]
         while True:
@@ -396,12 +459,145 @@ class StudyApp:
         else:
             print("Not your child.")
 
+    # NEW METHOD: Parents can view detailed study time for children
+    def parent_view_study_time(self):
+        children = self.child_accounts.get(self.current_user, [])
+        if not children:
+            print("No linked child accounts found.")
+            return
+
+        print("\nYour children:")
+        for i, child in enumerate(children, 1):
+            print(f"{i}. {child}")
+
+        try:
+            choice = int(input("Select child number: ")) - 1
+            if 0 <= choice < len(children):
+                child = children[choice]
+                self.show_child_study_details(child)
+            else:
+                print("Invalid selection.")
+        except ValueError:
+            print("Invalid input.")
+
+    # NEW METHOD: Show detailed study information for a specific child
+    def show_child_study_details(self, child):
+        print(f"\n=== Study Details for {child} ===")
+
+        # Get study history - convert old format to new format if needed
+        study_sessions = self.study_history.get(child, [])
+        if not study_sessions:
+            print("No study sessions recorded yet.")
+            return
+
+        # Convert old string format to new dict format if needed
+        converted_sessions = []
+        for session in study_sessions:
+            if isinstance(session, str):
+                # Old format: just timestamp string
+                converted_sessions.append({
+                    'timestamp': session,
+                    'duration': 25,  # Default duration for old sessions
+                    'type': 'Legacy Session',
+                    'subject': 'General'
+                })
+            else:
+                # New format: already a dict
+                converted_sessions.append(session)
+
+        # Calculate today's study time
+        today = datetime.now().date()
+        today_sessions = [s for s in converted_sessions if datetime.strptime(s['timestamp'], "%Y-%m-%d %H:%M").date() == today]
+        today_minutes = sum(s.get('duration', 25) for s in today_sessions)
+
+        # Calculate this week's study time
+        week_start = today - timedelta(days=today.weekday())
+        week_sessions = [s for s in converted_sessions if datetime.strptime(s['timestamp'], "%Y-%m-%d %H:%M").date() >= week_start]
+        week_minutes = sum(s.get('duration', 25) for s in week_sessions)
+
+        # Calculate total study time
+        total_minutes = sum(s.get('duration', 25) for s in converted_sessions)
+
+        print(f"📊 Study Time Summary:")
+        print(f"   Today: {today_minutes} minutes ({today_minutes//60}h {today_minutes%60}m)")
+        print(f"   This week: {week_minutes} minutes ({week_minutes//60}h {week_minutes%60}m)")
+        print(f"   Total all time: {total_minutes} minutes ({total_minutes//60}h {total_minutes%60}m)")
+        print(f"   Total sessions: {len(converted_sessions)}")
+
+        # Show daily limit status
+        daily_limit = self.time_limits.get(child, 1440)
+        if daily_limit < 1440:  # Only show if a limit is set
+            remaining_today = max(0, daily_limit - today_minutes)
+            print(f"   Daily limit: {daily_limit} minutes")
+            print(f"   Remaining today: {remaining_today} minutes")
+            if remaining_today == 0:
+                print("   ⚠️ Daily limit reached!")
+
+        # Show study assignments progress
+        assignments = self.study_assignments.get(child, [])
+        active_assignments = [a for a in assignments if not a.get('completed', False)]
+        if active_assignments:
+            print(f"\n📚 Active Study Assignments ({len(active_assignments)}):")
+            for assignment in active_assignments:
+                completed = assignment.get('completed_minutes', 0)
+                total = assignment['total_minutes']
+                progress = (completed / total) * 100
+                print(f"   • {assignment['subject']}: {completed}/{total} min ({progress:.1f}%)")
+
+        # Show recent study sessions
+        print(f"\n📝 Recent Study Sessions (Last 7):")
+        recent_sessions = sorted(converted_sessions, key=lambda x: x['timestamp'], reverse=True)[:7]
+        for session in recent_sessions:
+            timestamp = session['timestamp']
+            duration = session.get('duration', 25)
+            session_type = session.get('type', 'General Study')
+            subject = session.get('subject', 'N/A')
+            print(f"   • {timestamp}: {duration} min - {session_type}")
+            if subject != 'N/A' and subject != 'General':
+                print(f"     Subject: {subject}")
+
+        # Show study streak
+        streak = self.calculate_study_streak(child)
+        print(f"\n🔥 Current study streak: {streak} days")
+
+        input("\nPress Enter to continue...")
+
+    # NEW METHOD: Calculate study streak
+    def calculate_study_streak(self, username):
+        study_sessions = self.study_history.get(username, [])
+        if not study_sessions:
+            return 0
+
+        today = datetime.now().date()
+        streak = 0
+        current_date = today
+
+        # Get unique study dates
+        study_dates = set()
+        for session in study_sessions:
+            if isinstance(session, str):
+                # Old format
+                session_date = datetime.strptime(session, "%Y-%m-%d %H:%M").date()
+            else:
+                # New format
+                session_date = datetime.strptime(session['timestamp'], "%Y-%m-%d %H:%M").date()
+            study_dates.add(session_date)
+
+        # Check consecutive days
+        while current_date in study_dates:
+            streak += 1
+            current_date -= timedelta(days=1)
+
+        return streak
+
     def teacher_menu(self):
         options = [
             ("View students", self.teacher_view_students),
             ("Add student", self.teacher_add_student),
             ("Assign daily challenge to student", self.teacher_assign_challenge),
+            ("Assign study time to student", self.teacher_assign_study_time),  # NEW
             ("View student statistics", self.teacher_view_student_stats),
+            ("View student study assignments", self.teacher_view_assignments),  # NEW
             ("Back", None)
         ]
         while True:
@@ -448,6 +644,139 @@ class StudyApp:
             print("Challenge assigned.")
         else:
             print("Not your student.")
+
+    # NEW METHOD: Teachers can assign study time to students
+    def teacher_assign_study_time(self):
+        students = self.teacher_students.get(self.current_user, [])
+        if not students:
+            print("No students linked to your account.")
+            return
+
+        print("\nYour students:")
+        for i, student in enumerate(students, 1):
+            print(f"{i}. {student}")
+
+        try:
+            choice = int(input("Select student number: ")) - 1
+            if 0 <= choice < len(students):
+                student = students[choice]
+                self.create_study_assignment(student)
+            else:
+                print("Invalid selection.")
+        except ValueError:
+            print("Invalid input.")
+
+    # NEW METHOD: Create study assignment
+    def create_study_assignment(self, student):
+        print(f"\n=== Creating Study Assignment for {student} ===")
+
+        subject = input("Subject/Topic: ").strip()
+        if not subject:
+            print("Subject cannot be empty.")
+            return
+
+        try:
+            total_minutes = int(input("Total study time required (in minutes): "))
+            if total_minutes <= 0:
+                print("Study time must be positive.")
+                return
+        except ValueError:
+            print("Invalid time input.")
+            return
+
+        due_date = input("Due date (YYYY-MM-DD, optional): ").strip()
+        if due_date:
+            try:
+                # Validate date format
+                datetime.strptime(due_date, "%Y-%m-%d")
+            except ValueError:
+                print("Invalid date format. Assignment created without due date.")
+                due_date = "No due date"
+        else:
+            due_date = "No due date"
+
+        instructions = input("Additional instructions (optional): ").strip()
+        if not instructions:
+            instructions = "No additional instructions"
+
+        bonus_points = 5  # Default bonus points for completing assignment
+        try:
+            custom_bonus = input(f"Bonus points for completion (default {bonus_points}): ").strip()
+            if custom_bonus:
+                bonus_points = int(custom_bonus)
+        except ValueError:
+            print("Invalid bonus points, using default.")
+
+        # Create the assignment
+        assignment = {
+            'subject': subject,
+            'total_minutes': total_minutes,
+            'completed_minutes': 0,
+            'completed': False,
+            'teacher': self.current_user,
+            'due_date': due_date,
+            'instructions': instructions,
+            'bonus_points': bonus_points,
+            'assigned_date': datetime.now().strftime("%Y-%m-%d %H:%M")
+        }
+
+        if student not in self.study_assignments:
+            self.study_assignments[student] = []
+
+        self.study_assignments[student].append(assignment)
+        self.save_data()
+
+        print(f"\n✅ Study assignment created successfully!")
+        print(f"Student: {student}")
+        print(f"Subject: {subject}")
+        print(f"Required time: {total_minutes} minutes")
+        print(f"Due date: {due_date}")
+        print(f"Bonus points: {bonus_points}")
+
+    # NEW METHOD: Teachers can view all their assignments
+    def teacher_view_assignments(self):
+        all_assignments = []
+
+        # Collect all assignments created by this teacher
+        for student, assignments in self.study_assignments.items():
+            for assignment in assignments:
+                if assignment.get('teacher') == self.current_user:
+                    assignment_info = assignment.copy()
+                    assignment_info['student'] = student
+                    all_assignments.append(assignment_info)
+
+        if not all_assignments:
+            print("No study assignments created yet.")
+            return
+
+        print(f"\n=== All Study Assignments by {self.current_user} ===")
+
+        # Group by completion status
+        active_assignments = [a for a in all_assignments if not a.get('completed', False)]
+        completed_assignments = [a for a in all_assignments if a.get('completed', False)]
+
+        if active_assignments:
+            print(f"\n📝 Active Assignments ({len(active_assignments)}):")
+            for assignment in active_assignments:
+                completed_time = assignment.get('completed_minutes', 0)
+                total_time = assignment['total_minutes']
+                progress = (completed_time / total_time) * 100
+
+                print(f"\n• Student: {assignment['student']}")
+                print(f"  Subject: {assignment['subject']}")
+                print(f"  Progress: {completed_time}/{total_time} min ({progress:.1f}%)")
+                print(f"  Due: {assignment.get('due_date', 'No due date')}")
+
+                # Progress bar
+                progress_bar = "█" * int(progress // 5) + "░" * (20 - int(progress // 5))
+                print(f"  [{progress_bar}]")
+
+        if completed_assignments:
+            print(f"\n✅ Completed Assignments ({len(completed_assignments)}):")
+            for assignment in completed_assignments:
+                print(f"• {assignment['student']} - {assignment['subject']} ({assignment['total_minutes']} min)")
+
+        input("\nPress Enter to continue...")
 
     def teacher_view_student_stats(self):
         stu = input("Enter student's username: ")
@@ -623,30 +952,64 @@ class StudyApp:
         if user is None:
             user = self.current_user
         print(f"\n--- Statistics for {user} ---")
-        today = datetime.now().date()
-        streak = 0
-        last = None
-        days = sorted(set([datetime.strptime(ts, "%Y-%m-%d %H:%M").date() for ts in self.study_history.get(user,[])]), reverse=True)
-        for i, d in enumerate(days):
-            if i == 0:
-                if d == today:
-                    streak = 1
-                    last = d
-                else:
-                    break
-            else:
-                if last and (last - d == timedelta(days=1)):
-                    streak += 1
-                    last = d
-                else:
-                    break
+
+        # Calculate streak using new method
+        streak = self.calculate_study_streak(user)
         print(f"Current study streak: {streak} days")
-        total_sessions = len(self.study_history.get(user,[]))
+
+        # Get detailed study sessions - handle both old and new formats
+        study_sessions = self.study_history.get(user, [])
+        total_sessions = len(study_sessions)
+
+        # Calculate total minutes - handle old string format and new dict format
+        total_minutes = 0
+        for session in study_sessions:
+            if isinstance(session, str):
+                # Old format: assume 25 minutes per session
+                total_minutes += 25
+            else:
+                # New format: has duration field
+                total_minutes += session.get('duration', 0)
+
         print(f"Study sessions: {total_sessions}")
+        print(f"Total study time: {total_minutes} minutes ({total_minutes//60}h {total_minutes%60}m)")
+
+        # Show today's and this week's study time
+        today = datetime.now().date()
+        week_start = today - timedelta(days=today.weekday())
+
+        today_minutes = 0
+        week_minutes = 0
+
+        for session in study_sessions:
+            if isinstance(session, str):
+                session_date = datetime.strptime(session, "%Y-%m-%d %H:%M").date()
+                session_duration = 25  # Default for old format
+            else:
+                session_date = datetime.strptime(session['timestamp'], "%Y-%m-%d %H:%M").date()
+                session_duration = session.get('duration', 0)
+
+            if session_date == today:
+                today_minutes += session_duration
+            if session_date >= week_start:
+                week_minutes += session_duration
+
+        print(f"Today's study time: {today_minutes} minutes")
+        print(f"This week's study time: {week_minutes} minutes")
+
+        # Show flashcard stats
         stats = self.flashcard_stats.get(user, {"correct": 0, "total": 0})
         print(f"Flashcard accuracy: {stats['correct']}/{stats['total']} correct "
               f"({(stats['correct']/stats['total']*100 if stats['total'] else 0):.1f}%)")
+
         print(f"Total points: {self.points.get(user,0)}")
+
+        # Show study assignments if any
+        assignments = self.study_assignments.get(user, [])
+        if assignments:
+            completed_assignments = sum(1 for a in assignments if a.get('completed', False))
+            print(f"Study assignments: {completed_assignments}/{len(assignments)} completed")
+
         print("-----------------------------------")
         input("Press Enter to return to menu...")
 
@@ -711,34 +1074,109 @@ class StudyApp:
                 print("Incorrect. Please try again later.")
         self.leaderboard()
 
-    def grant_study_points(self, duration):
+    # UPDATED METHOD: Enhanced grant study points with assignment tracking
+    def grant_study_points(self, duration, session_type="General Study", subject=None):
         now = datetime.now()
         user = self.current_user
         limit = self.time_limits.get(user, 1440)
         today = now.date()
-        studied_today = sum(1 for ts in self.study_history.get(user,[]) if datetime.strptime(ts, "%Y-%m-%d %H:%M").date()==today)
-        if studied_today >= limit:
+
+        # Calculate today's study time from detailed history
+        study_sessions = self.study_history.get(user, [])
+        today_minutes = 0
+        for session in study_sessions:
+            if isinstance(session, str):
+                session_date = datetime.strptime(session, "%Y-%m-%d %H:%M").date()
+                session_duration = 25  # Default for old format
+            else:
+                session_date = datetime.strptime(session['timestamp'], "%Y-%m-%d %H:%M").date()
+                session_duration = session.get('duration', 0)
+
+            if session_date == today:
+                today_minutes += session_duration
+
+        if today_minutes >= limit:
             print(f"You have reached your daily study time limit: {limit} minutes.")
             return
+
+        # Check if this would exceed the limit
+        if today_minutes + duration > limit:
+            allowed_duration = limit - today_minutes
+            print(f"Study time limited to {allowed_duration} minutes due to daily limit.")
+            duration = allowed_duration
+            if duration <= 0:
+                return
+
+        # Award points
         pts = max(1, duration // 25 * 2)
         self.points[user] += pts
         print(f"You earned {pts} points!")
+
+        # Record detailed study session
+        session_record = {
+            'timestamp': now.strftime("%Y-%m-%d %H:%M"),
+            'duration': duration,
+            'type': session_type,
+            'subject': subject
+        }
+
         self.last_study_time[user] = now
-        self.study_history.setdefault(user, []).append(now.strftime("%Y-%m-%d %H:%M"))
+        if user not in self.study_history:
+            self.study_history[user] = []
+        self.study_history[user].append(session_record)
+
+        # Update study assignments if applicable
+        self.update_study_assignments(user, duration, subject)
+
         self.save_data()
 
+    # NEW METHOD: Update study assignment progress
+    def update_study_assignments(self, user, duration, subject):
+        assignments = self.study_assignments.get(user, [])
+        updated_any = False
+
+        for assignment in assignments:
+            if assignment.get('completed', False):
+                continue  # Skip completed assignments
+
+            # If subject matches or no specific subject for the study session
+            if subject is None or assignment['subject'].lower() == subject.lower():
+                assignment['completed_minutes'] = assignment.get('completed_minutes', 0) + duration
+                updated_any = True
+
+                # Check if assignment is now complete
+                if assignment['completed_minutes'] >= assignment['total_minutes']:
+                    assignment['completed'] = True
+                    bonus_points = assignment.get('bonus_points', 5)
+                    self.points[user] += bonus_points
+                    print(f"🎉 Assignment completed! '{assignment['subject']}' - Bonus {bonus_points} points!")
+                else:
+                    remaining = assignment['total_minutes'] - assignment['completed_minutes']
+                    print(f"📚 Assignment progress updated: '{assignment['subject']}' - {remaining} minutes remaining")
+
+                break  # Only update one assignment per study session
+
+        if updated_any:
+            self.save_data()
+
+    # UPDATED METHOD: Enhanced pomodoro with assignment tracking
     def pomodoro_timer(self):
         work = self.pomodoro_config["work"]
         brk = self.pomodoro_config["break"]
         print(f"Pomodoro: {work} minutes work, {brk} minutes break.")
+
+        # Ask for subject if student has active assignments
+        subject = self.ask_for_subject_if_assignments()
+
         input("Press Enter to start work session...")
         self.run_timer(work * 60, "Work")
         input("Press Enter to start break session...")
         self.run_timer(brk * 60, "Break")
-        self.grant_study_points(duration=work)
+        self.grant_study_points(duration=work, session_type="Pomodoro", subject=subject)
         print("Pomodoro session complete! Points awarded.")
         self.leaderboard()
 
+    # UPDATED METHOD: Enhanced custom timer with assignment tracking
     def custom_study_timer(self):
         try:
             mins = int(input("Enter study minutes: "))
@@ -748,11 +1186,43 @@ class StudyApp:
         if mins <= 0:
             print("Minutes must be positive.")
             return
+
+        # Ask for subject if student has active assignments
+        subject = self.ask_for_subject_if_assignments()
+
         input("Press Enter to start timer...")
         self.run_timer(mins * 60, "Custom Study")
-        self.grant_study_points(duration=mins)
+        self.grant_study_points(duration=mins, session_type="Custom Timer", subject=subject)
         print("Custom study session complete! Points awarded.")
         self.leaderboard()
+
+    # NEW METHOD: Ask student which subject they're studying
+    def ask_for_subject_if_assignments(self):
+        assignments = self.study_assignments.get(self.current_user, [])
+        active_assignments = [a for a in assignments if not a.get('completed', False)]
+
+        if not active_assignments:
+            return None
+
+        print(f"\nYou have {len(active_assignments)} active study assignment(s):")
+        for i, assignment in enumerate(active_assignments, 1):
+            remaining = assignment['total_minutes'] - assignment.get('completed_minutes', 0)
+            print(f"{i}. {assignment['subject']} ({remaining} min remaining)")
+
+        print(f"{len(active_assignments) + 1}. General study (not for a specific assignment)")
+
+        try:
+            choice = int(input("What will you be studying? Enter number: ")) - 1
+            if 0 <= choice < len(active_assignments):
+                return active_assignments[choice]['subject']
+            elif choice == len(active_assignments):
+                return None
+            else:
+                print("Invalid choice, treating as general study.")
+                return None
+        except ValueError:
+            print("Invalid input, treating as general study.")
+            return None
 
     def run_timer(self, seconds, label):
         print(f"{label} timer started for {seconds // 60} minutes.")
@@ -860,4 +1330,4 @@ class StudyApp:
 
 if __name__ == "__main__":
     app = StudyApp()
-    app.start_screen()
+    app.start_screen() 
