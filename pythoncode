@@ -1,6 +1,8 @@
+
 import time
 import json
 import os
+import random
 from datetime import datetime, timedelta
 from typing import get_type_hints
 
@@ -19,7 +21,43 @@ class StudyApp:
         self.group_challenges = {}
         self.study_materials = {}
         self.notifications = {}
-        self.study_assignments = {}  # NEW: Store teacher study time assignments
+        self.study_assignments = {}
+        self.pets = {}  # NEW: Store user pets
+        self.notes = {}  # NEW: Store user notes
+        self.note_templates = {  # NEW: Pre-made note templates
+            "cornell": {
+                "name": "Cornell Notes",
+                "structure": "# {title}\n\n**Date:** {date}\n**Subject:** {subject}\n\n## Key Points\n- \n- \n- \n\n## Notes\n{content}\n\n## Summary\n{summary}"
+            },
+            "outline": {
+                "name": "Outline Format",
+                "structure": "# {title}\n\n**Date:** {date}\n**Subject:** {subject}\n\n## I. Main Topic\n   A. Subtopic\n      1. Detail\n      2. Detail\n   B. Subtopic\n\n## II. Main Topic\n   A. Subtopic\n   B. Subtopic\n\n## Notes\n{content}"
+            },
+            "lecture": {
+                "name": "Lecture Notes",
+                "structure": "# {title}\n\n**Date:** {date}\n**Subject:** {subject}\n**Instructor:** {instructor}\n\n## Pre-Lecture\n- Reading: \n- Questions: \n\n## Lecture Content\n{content}\n\n## Post-Lecture\n- Key takeaways: \n- Questions for next class: "
+            },
+            "study_guide": {
+                "name": "Study Guide",
+                "structure": "# {title} - Study Guide\n\n**Date:** {date}\n**Subject:** {subject}\n**Exam Date:** {exam_date}\n\n## Key Concepts\n1. \n2. \n3. \n\n## Important Formulas/Definitions\n- \n- \n\n## Practice Problems\n{content}\n\n## Review Checklist\n- [ ] \n- [ ] \n- [ ] "
+            },
+            "meeting": {
+                "name": "Meeting Notes",
+                "structure": "# {title}\n\n**Date:** {date}\n**Attendees:** {attendees}\n**Duration:** {duration}\n\n## Agenda\n1. \n2. \n3. \n\n## Discussion Points\n{content}\n\n## Action Items\n- [ ] Task 1 - Assigned to: \n- [ ] Task 2 - Assigned to: \n\n## Next Meeting\n**Date:** \n**Topics:** "
+            },
+            "research": {
+                "name": "Research Notes",
+                "structure": "# {title}\n\n**Date:** {date}\n**Source:** {source}\n**Author:** {author}\n\n## Research Question\n{question}\n\n## Key Findings\n{content}\n\n## Quotes/Evidence\n- \n- \n\n## Personal Analysis\n{analysis}\n\n## Citations\n1. "
+            }
+        }
+        self.pet_store_items = {  # NEW: Pet store items
+            "basic_food": {"name": "Basic Pet Food", "price": 5, "hunger_restore": 20},
+            "premium_food": {"name": "Premium Pet Food", "price": 15, "hunger_restore": 50},
+            "deluxe_food": {"name": "Deluxe Pet Food", "price": 25, "hunger_restore": 80},
+            "happiness_treat": {"name": "Happiness Treat", "price": 10, "happiness_boost": 30},
+            "energy_boost": {"name": "Energy Boost", "price": 8, "energy_restore": 40},
+            "pet_toy": {"name": "Pet Toy", "price": 20, "happiness_boost": 50, "energy_restore": 20}
+        }
 
     def load_data(self):
         if os.path.exists(self.data_file):
@@ -47,7 +85,9 @@ class StudyApp:
                 self.group_challenges = data.get("group_challenges", {})
                 self.study_materials = data.get("study_materials", {})
                 self.notifications = data.get("notifications", {})
-                self.study_assignments = data.get("study_assignments", {})  # NEW
+                self.study_assignments = data.get("study_assignments", {})
+                self.pets = data.get("pets", {})  # NEW
+                self.notes = data.get("notes", {})  # NEW
         else:
             self.accounts = {}
             self.security_questions = {}
@@ -71,7 +111,9 @@ class StudyApp:
             self.group_challenges = {}
             self.study_materials = {}
             self.notifications = {}
-            self.study_assignments = {}  # NEW
+            self.study_assignments = {}
+            self.pets = {}  # NEW
+            self.notes = {}  # NEW
         self.current_user = None
 
     def save_data(self):
@@ -98,7 +140,9 @@ class StudyApp:
             "group_challenges": self.group_challenges,
             "study_materials": self.study_materials,
             "notifications": self.notifications,
-            "study_assignments": self.study_assignments,  # NEW
+            "study_assignments": self.study_assignments,
+            "pets": self.pets,  # NEW
+            "notes": self.notes,  # NEW
         }
         with open(self.data_file, "w") as f:
             json.dump(data, f)
@@ -137,8 +181,12 @@ class StudyApp:
             self.study_materials[username] = []
         if username not in self.notifications:
             self.notifications[username] = []
-        if username not in self.study_assignments:  # NEW
+        if username not in self.study_assignments:
             self.study_assignments[username] = []
+        if username not in self.pets:  # NEW
+            self.pets[username] = None
+        if username not in self.notes:  # NEW
+            self.notes[username] = []
         if username not in self.child_accounts and self.user_type[username] == "parent":
             self.child_accounts[username] = []
         if username not in self.teacher_students and self.user_type[username] == "teacher":
@@ -171,7 +219,8 @@ class StudyApp:
             self.check_friend_requests(username)
             self.check_due_reminders()
             self.check_due_notifications()
-            self.check_study_assignments()  # NEW: Check assignments on login
+            self.check_study_assignments()
+            self.update_pet_status()  # NEW: Update pet when user logs in
             self.loading_screen()
         else:
             print("Incorrect credentials.")
@@ -193,7 +242,31 @@ class StudyApp:
             return
         self.save_data()
 
-    # NEW METHOD: Check study assignments on login
+    # NEW METHOD: Update pet status based on time passed
+    def update_pet_status(self):
+        pet = self.pets.get(self.current_user)
+        if not pet:
+            return
+
+        now = datetime.now()
+        last_update = datetime.strptime(pet['last_update'], "%Y-%m-%d %H:%M")
+        hours_passed = (now - last_update).total_seconds() / 3600
+
+        # Decrease stats over time
+        hunger_decrease = int(hours_passed * 5)  # 5 hunger per hour
+        happiness_decrease = int(hours_passed * 3)  # 3 happiness per hour
+        energy_decrease = int(hours_passed * 4)  # 4 energy per hour
+
+        pet['hunger'] = max(0, pet['hunger'] - hunger_decrease)
+        pet['happiness'] = max(0, pet['happiness'] - happiness_decrease)
+        pet['energy'] = max(0, pet['energy'] - energy_decrease)
+        pet['last_update'] = now.strftime("%Y-%m-%d %H:%M")
+
+        # Show pet status if it needs attention
+        if pet['hunger'] < 30 or pet['happiness'] < 30 or pet['energy'] < 30:
+            print(f"\n🐾 Your pet {pet['name']} needs attention!")
+            self.show_pet_status()
+
     def check_study_assignments(self):
         assignments = self.study_assignments.get(self.current_user, [])
         active_assignments = [a for a in assignments if not a.get('completed', False)]
@@ -212,7 +285,6 @@ class StudyApp:
                 print(f"   Due: {due_date}")
                 print(f"   From teacher: {assignment['teacher']}")
 
-                # Show progress bar
                 progress = (completed_time / assignment['total_minutes']) * 100
                 progress_bar = "█" * int(progress // 5) + "░" * (20 - int(progress // 5))
                 print(f"   Progress: [{progress_bar}] {progress:.1f}%")
@@ -297,10 +369,13 @@ class StudyApp:
                 ("Group Challenges", self.group_challenges_menu),
                 ("Study Materials (Upload/Highlight)", self.study_materials_menu),
                 ("Set Push Notification", self.push_notification_menu),
+                ("Virtual Pet", self.pet_menu),  # NEW
+                ("Pet Store", self.pet_store_menu),  # NEW
+                ("Notes & Templates", self.notes_menu),  # NEW
             ]
             if usertype == "student":
                 options.append(("View Teacher Assignments", self.view_teacher_assignments))
-                options.append(("View Study Assignments", self.view_study_assignments))  # NEW
+                options.append(("View Study Assignments", self.view_study_assignments))
             if usertype == "parent":
                 options.append(("Parental Controls", self.parent_menu))
             if usertype == "teacher":
@@ -325,7 +400,1199 @@ class StudyApp:
             except ValueError:
                 print("Invalid choice.")
 
-    # NEW METHOD: Students can view their study assignments
+    # NEW METHOD: Pet menu
+    def pet_menu(self):
+        options = [
+            ("View Pet Status", self.show_pet_status),
+            ("Create New Pet", self.create_pet),
+            ("Feed Pet", self.feed_pet),
+            ("Play with Pet", self.play_with_pet),
+            ("Pet Care Tips", self.pet_care_tips),
+            ("Back", None)
+        ]
+        while True:
+            print("\n🐾 Virtual Pet Menu")
+            for idx, (label, _) in enumerate(options, 1):
+                print(f"{idx}. {label}")
+            choice = input("Choice: ").strip()
+            try:
+                choice_num = int(choice)
+                if 1 <= choice_num <= len(options):
+                    if options[choice_num - 1][1] is None:
+                        return
+                    else:
+                        options[choice_num - 1][1]()
+                else:
+                    print("Invalid choice.")
+            except ValueError:
+                print("Invalid choice.")
+
+    # NEW METHOD: Show pet status
+    def show_pet_status(self):
+        pet = self.pets.get(self.current_user)
+        if not pet:
+            print("You don't have a pet yet! Create one first.")
+            return
+
+        print(f"\n🐾 Pet Status: {pet['name']} the {pet['type']}")
+        print(f"Age: {pet['age']} days")
+        print(f"Level: {pet['level']} (XP: {pet['xp']}/100)")
+        
+        # Visual status bars
+        hunger_bar = "█" * (pet['hunger'] // 5) + "░" * (20 - pet['hunger'] // 5)
+        happiness_bar = "█" * (pet['happiness'] // 5) + "░" * (20 - pet['happiness'] // 5)
+        energy_bar = "█" * (pet['energy'] // 5) + "░" * (20 - pet['energy'] // 5)
+        
+        print(f"Hunger:    [{hunger_bar}] {pet['hunger']}/100")
+        print(f"Happiness: [{happiness_bar}] {pet['happiness']}/100")
+        print(f"Energy:    [{energy_bar}] {pet['energy']}/100")
+        
+        # Pet mood
+        mood = self.get_pet_mood(pet)
+        print(f"Mood: {mood}")
+        
+        # Show pet ASCII art based on mood
+        self.show_pet_art(pet, mood)
+        
+        print(f"Last fed: {pet.get('last_fed', 'Never')}")
+        print(f"Times played with: {pet.get('play_count', 0)}")
+        
+        input("\nPress Enter to continue...")
+
+    # NEW METHOD: Get pet mood based on stats
+    def get_pet_mood(self, pet):
+        avg_stat = (pet['hunger'] + pet['happiness'] + pet['energy']) / 3
+        
+        if avg_stat >= 80:
+            return "😄 Ecstatic"
+        elif avg_stat >= 60:
+            return "😊 Happy"
+        elif avg_stat >= 40:
+            return "😐 Neutral"
+        elif avg_stat >= 20:
+            return "😞 Sad"
+        else:
+            return "😢 Miserable"
+
+    # NEW METHOD: Show pet ASCII art
+    def show_pet_art(self, pet, mood):
+        if pet['type'] == "Cat":
+            if "Happy" in mood or "Ecstatic" in mood:
+                print("""
+      /\\_/\\  
+     ( ^.^ ) 
+      > ^ <  
+                """)
+            elif "Sad" in mood or "Miserable" in mood:
+                print("""
+      /\\_/\\  
+     ( -.- ) 
+      > v <  
+                """)
+            else:
+                print("""
+      /\\_/\\  
+     ( o.o ) 
+      > - <  
+                """)
+        elif pet['type'] == "Dog":
+            if "Happy" in mood or "Ecstatic" in mood:
+                print("""
+      / o o \\
+     (   V   )
+      \\  ~  /
+       -----
+                """)
+            elif "Sad" in mood or "Miserable" in mood:
+                print("""
+      / - - \\
+     (   n   )
+      \\  _  /
+       -----
+                """)
+            else:
+                print("""
+      / . . \\
+     (   o   )
+      \\  -  /
+       -----
+                """)
+
+    # NEW METHOD: Create a new pet
+    def create_pet(self):
+        if self.pets.get(self.current_user):
+            print("You already have a pet! You can only have one pet at a time.")
+            return
+
+        print("\n🐾 Create Your Virtual Pet!")
+        name = input("Enter your pet's name: ").strip()
+        if not name:
+            print("Pet name cannot be empty.")
+            return
+
+        print("\nChoose your pet type:")
+        print("1. Cat")
+        print("2. Dog")
+        choice = input("Enter choice (1-2): ").strip()
+        
+        pet_types = {"1": "Cat", "2": "Dog"}
+        pet_type = pet_types.get(choice, "Cat")
+
+        # Create pet with initial stats
+        pet = {
+            'name': name,
+            'type': pet_type,
+            'age': 0,
+            'level': 1,
+            'xp': 0,
+            'hunger': 80,
+            'happiness': 80,
+            'energy': 80,
+            'last_update': datetime.now().strftime("%Y-%m-%d %H:%M"),
+            'last_fed': "Never",
+            'play_count': 0,
+            'creation_date': datetime.now().strftime("%Y-%m-%d")
+        }
+
+        self.pets[self.current_user] = pet
+        self.save_data()
+
+        print(f"\n🎉 Congratulations! You've created {name} the {pet_type}!")
+        print("Your pet starts with 80 hunger, happiness, and energy.")
+        print("Remember to feed and play with your pet regularly!")
+        
+        self.show_pet_status()
+
+    # NEW METHOD: Feed pet
+    def feed_pet(self):
+        pet = self.pets.get(self.current_user)
+        if not pet:
+            print("You don't have a pet yet! Create one first.")
+            return
+
+        print(f"\n🍽️ Feeding {pet['name']} the {pet['type']}")
+        print("Choose food from your inventory:")
+        
+        # Show available food items (simulated inventory)
+        food_items = ["basic_food", "premium_food", "deluxe_food"]
+        available_foods = []
+        
+        for i, food_key in enumerate(food_items, 1):
+            food = self.pet_store_items[food_key]
+            print(f"{i}. {food['name']} (Restores {food['hunger_restore']} hunger)")
+            available_foods.append(food_key)
+        
+        print(f"{len(available_foods) + 1}. Cancel")
+        
+        try:
+            choice = int(input("Enter choice: ")) - 1
+            if choice == len(available_foods):
+                return
+            elif 0 <= choice < len(available_foods):
+                food_key = available_foods[choice]
+                food = self.pet_store_items[food_key]
+                
+                # Check if user has enough points (simulated purchase)
+                if self.points[self.current_user] < food['price']:
+                    print(f"Not enough points! You need {food['price']} points.")
+                    print("Visit the Pet Store to understand pricing.")
+                    return
+                
+                # "Purchase" and use the food
+                self.points[self.current_user] -= food['price']
+                
+                # Feed the pet
+                old_hunger = pet['hunger']
+                pet['hunger'] = min(100, pet['hunger'] + food['hunger_restore'])
+                pet['last_fed'] = datetime.now().strftime("%Y-%m-%d %H:%M")
+                
+                # Give pet XP for being fed
+                pet['xp'] += 5
+                if pet['xp'] >= 100:
+                    pet['level'] += 1
+                    pet['xp'] = 0
+                    print(f"🎉 {pet['name']} leveled up! Now level {pet['level']}!")
+                
+                hunger_gained = pet['hunger'] - old_hunger
+                print(f"\n{pet['name']} enjoyed the {food['name']}!")
+                print(f"Hunger increased by {hunger_gained} ({old_hunger} → {pet['hunger']})")
+                print(f"Cost: {food['price']} points")
+                print(f"Remaining points: {self.points[self.current_user]}")
+                
+                self.save_data()
+            else:
+                print("Invalid choice.")
+        except ValueError:
+            print("Invalid input.")
+
+    # NEW METHOD: Play with pet
+    def play_with_pet(self):
+        pet = self.pets.get(self.current_user)
+        if not pet:
+            print("You don't have a pet yet! Create one first.")
+            return
+
+        if pet['energy'] < 20:
+            print(f"{pet['name']} is too tired to play! Feed them some energy-boosting food first.")
+            return
+
+        print(f"\n🎮 Playing with {pet['name']} the {pet['type']}")
+        print("Choose an activity:")
+        print("1. Fetch (Costs 15 energy, +20 happiness)")
+        print("2. Cuddle (Costs 10 energy, +15 happiness)")
+        print("3. Trick Training (Costs 20 energy, +25 happiness, +10 XP)")
+        print("4. Cancel")
+        
+        activities = {
+            "1": {"name": "Fetch", "energy_cost": 15, "happiness_gain": 20, "xp_gain": 5},
+            "2": {"name": "Cuddle", "energy_cost": 10, "happiness_gain": 15, "xp_gain": 3},
+            "3": {"name": "Trick Training", "energy_cost": 20, "happiness_gain": 25, "xp_gain": 10}
+        }
+        
+        choice = input("Enter choice: ").strip()
+        if choice == "4":
+            return
+        elif choice in activities:
+            activity = activities[choice]
+            
+            if pet['energy'] < activity['energy_cost']:
+                print(f"Not enough energy! {pet['name']} needs {activity['energy_cost']} energy for this activity.")
+                return
+            
+            # Perform activity
+            pet['energy'] -= activity['energy_cost']
+            old_happiness = pet['happiness']
+            pet['happiness'] = min(100, pet['happiness'] + activity['happiness_gain'])
+            pet['xp'] += activity['xp_gain']
+            pet['play_count'] += 1
+            
+            # Check for level up
+            if pet['xp'] >= 100:
+                pet['level'] += 1
+                pet['xp'] = 0
+                print(f"🎉 {pet['name']} leveled up! Now level {pet['level']}!")
+            
+            happiness_gained = pet['happiness'] - old_happiness
+            print(f"\n{pet['name']} loved playing {activity['name']}!")
+            print(f"Happiness increased by {happiness_gained} ({old_happiness} → {pet['happiness']})")
+            print(f"Energy decreased by {activity['energy_cost']}")
+            print(f"XP gained: {activity['xp_gain']}")
+            
+            # Random positive messages
+            messages = [
+                f"{pet['name']} is wagging their tail!",
+                f"{pet['name']} looks very happy!",
+                f"{pet['name']} wants to play more!",
+                f"{pet['name']} is purring with joy!" if pet['type'] == "Cat" else f"{pet['name']} is barking happily!"
+            ]
+            print(random.choice(messages))
+            
+            self.save_data()
+        else:
+            print("Invalid choice.")
+
+    # NEW METHOD: Pet care tips
+    def pet_care_tips(self):
+        print("\n📖 Pet Care Tips:")
+        print("1. Feed your pet regularly to maintain hunger levels")
+        print("2. Play with your pet to keep them happy and gain XP")
+        print("3. Pet stats decrease over time, so check on them daily")
+        print("4. Higher level pets are more resilient and gain bonuses")
+        print("5. Use the Pet Store to buy food and treats with your study points")
+        print("6. Happy pets give you study motivation bonuses!")
+        print("7. Different foods restore different amounts of hunger")
+        print("8. Energy is needed for play activities")
+        print("9. A balanced pet (good hunger, happiness, energy) will be in a better mood")
+        print("10. Your pet grows older each day and gains experience through care")
+        input("\nPress Enter to continue...")
+
+    # NEW METHOD: Pet store menu
+    def pet_store_menu(self):
+        options = [
+            ("Browse Items", self.browse_pet_store),
+            ("Buy Food", self.buy_pet_food),
+            ("Buy Treats", self.buy_pet_treats),
+            ("View Purchase History", self.view_purchase_history),
+            ("Back", None)
+        ]
+        while True:
+            print(f"\n🛒 Pet Store (Your points: {self.points[self.current_user]})")
+            for idx, (label, _) in enumerate(options, 1):
+                print(f"{idx}. {label}")
+            choice = input("Choice: ").strip()
+            try:
+                choice_num = int(choice)
+                if 1 <= choice_num <= len(options):
+                    if options[choice_num - 1][1] is None:
+                        return
+                    else:
+                        options[choice_num - 1][1]()
+                else:
+                    print("Invalid choice.")
+            except ValueError:
+                print("Invalid choice.")
+
+    # NEW METHOD: Browse pet store
+    def browse_pet_store(self):
+        print(f"\n🛒 Pet Store Catalog (Your points: {self.points[self.current_user]})")
+        print("=" * 50)
+        
+        for key, item in self.pet_store_items.items():
+            print(f"\n📦 {item['name']} - {item['price']} points")
+            if 'hunger_restore' in item:
+                print(f"   Restores {item['hunger_restore']} hunger")
+            if 'happiness_boost' in item:
+                print(f"   Boosts happiness by {item['happiness_boost']}")
+            if 'energy_restore' in item:
+                print(f"   Restores {item['energy_restore']} energy")
+        
+        print("\n💡 Tip: Earn points by studying and completing assignments!")
+        input("\nPress Enter to continue...")
+
+    # NEW METHOD: Buy pet food
+    def buy_pet_food(self):
+        print(f"\n🍽️ Pet Food Section (Your points: {self.points[self.current_user]})")
+        food_items = ["basic_food", "premium_food", "deluxe_food"]
+        
+        for i, food_key in enumerate(food_items, 1):
+            food = self.pet_store_items[food_key]
+            affordable = "✅" if self.points[self.current_user] >= food['price'] else "❌"
+            print(f"{i}. {affordable} {food['name']} - {food['price']} points")
+            print(f"   Restores {food['hunger_restore']} hunger")
+        
+        print(f"{len(food_items) + 1}. Cancel")
+        
+        try:
+            choice = int(input("Enter choice: ")) - 1
+            if choice == len(food_items):
+                return
+            elif 0 <= choice < len(food_items):
+                food_key = food_items[choice]
+                food = self.pet_store_items[food_key]
+                
+                if self.points[self.current_user] >= food['price']:
+                    self.points[self.current_user] -= food['price']
+                    print(f"✅ Purchased {food['name']} for {food['price']} points!")
+                    print(f"Remaining points: {self.points[self.current_user]}")
+                    print("The food has been added to your inventory.")
+                    self.save_data()
+                else:
+                    needed = food['price'] - self.points[self.current_user]
+                    print(f"❌ Not enough points! You need {needed} more points.")
+            else:
+                print("Invalid choice.")
+        except ValueError:
+            print("Invalid input.")
+
+    # NEW METHOD: Buy pet treats
+    def buy_pet_treats(self):
+        print(f"\n🍭 Pet Treats Section (Your points: {self.points[self.current_user]})")
+        treat_items = ["happiness_treat", "energy_boost", "pet_toy"]
+        
+        for i, treat_key in enumerate(treat_items, 1):
+            treat = self.pet_store_items[treat_key]
+            affordable = "✅" if self.points[self.current_user] >= treat['price'] else "❌"
+            print(f"{i}. {affordable} {treat['name']} - {treat['price']} points")
+            if 'happiness_boost' in treat:
+                print(f"   Boosts happiness by {treat['happiness_boost']}")
+            if 'energy_restore' in treat:
+                print(f"   Restores {treat['energy_restore']} energy")
+        
+        print(f"{len(treat_items) + 1}. Cancel")
+        
+        try:
+            choice = int(input("Enter choice: ")) - 1
+            if choice == len(treat_items):
+                return
+            elif 0 <= choice < len(treat_items):
+                treat_key = treat_items[choice]
+                treat = self.pet_store_items[treat_key]
+                
+                if self.points[self.current_user] >= treat['price']:
+                    self.points[self.current_user] -= treat['price']
+                    print(f"✅ Purchased {treat['name']} for {treat['price']} points!")
+                    print(f"Remaining points: {self.points[self.current_user]}")
+                    print("The treat has been added to your inventory.")
+                    self.save_data()
+                else:
+                    needed = treat['price'] - self.points[self.current_user]
+                    print(f"❌ Not enough points! You need {needed} more points.")
+            else:
+                print("Invalid choice.")
+        except ValueError:
+            print("Invalid input.")
+
+    # NEW METHOD: View purchase history (simulated)
+    def view_purchase_history(self):
+        print("\n📋 Purchase History")
+        print("(Feature coming soon - this will show your pet store purchases)")
+        print("For now, check your current points and pet status!")
+        input("\nPress Enter to continue...")
+
+    # NEW METHOD: Notes menu
+    def notes_menu(self):
+        options = [
+            ("View All Notes", self.view_all_notes),
+            ("Create Note from Template", self.create_note_from_template),
+            ("Create Blank Note", self.create_blank_note),
+            ("Edit Note", self.edit_note),
+            ("Delete Note", self.delete_note),
+            ("Search Notes", self.search_notes),
+            ("Export Notes", self.export_notes),
+            ("Note Statistics", self.note_statistics),
+            ("Back", None)
+        ]
+        while True:
+            print(f"\n📝 Notes & Templates (Total notes: {len(self.notes[self.current_user])})")
+            for idx, (label, _) in enumerate(options, 1):
+                print(f"{idx}. {label}")
+            choice = input("Choice: ").strip()
+            try:
+                choice_num = int(choice)
+                if 1 <= choice_num <= len(options):
+                    if options[choice_num - 1][1] is None:
+                        return
+                    else:
+                        options[choice_num - 1][1]()
+                else:
+                    print("Invalid choice.")
+            except ValueError:
+                print("Invalid choice.")
+
+    # NEW METHOD: View all notes
+    def view_all_notes(self):
+        notes = self.notes[self.current_user]
+        if not notes:
+            print("No notes found. Create your first note!")
+            return
+
+        print(f"\n📚 All Notes ({len(notes)} total)")
+        print("=" * 50)
+        
+        # Sort notes by creation date (newest first)
+        sorted_notes = sorted(notes, key=lambda x: x.get('created', ''), reverse=True)
+        
+        for i, note in enumerate(sorted_notes, 1):
+            title = note.get('title', 'Untitled')
+            subject = note.get('subject', 'General')
+            template = note.get('template_used', 'Custom')
+            created = note.get('created', 'Unknown')
+            word_count = len(note.get('content', '').split())
+            
+            print(f"\n{i}. {title}")
+            print(f"   Subject: {subject} | Template: {template}")
+            print(f"   Created: {created} | Words: {word_count}")
+            
+            # Show preview of content (first 100 characters)
+            content_preview = note.get('content', '')[:100]
+            if len(content_preview) == 100:
+                content_preview += "..."
+            print(f"   Preview: {content_preview}")
+
+        choice = input(f"\nEnter note number to view (1-{len(sorted_notes)}) or Enter to go back: ").strip()
+        if choice.isdigit():
+            idx = int(choice) - 1
+            if 0 <= idx < len(sorted_notes):
+                self.view_single_note(sorted_notes[idx])
+
+    # NEW METHOD: View single note
+    def view_single_note(self, note):
+        print(f"\n📄 Note: {note.get('title', 'Untitled')}")
+        print("=" * 50)
+        print(f"Subject: {note.get('subject', 'General')}")
+        print(f"Template: {note.get('template_used', 'Custom')}")
+        print(f"Created: {note.get('created', 'Unknown')}")
+        print(f"Last edited: {note.get('last_edited', 'Never')}")
+        print("-" * 50)
+        print(note.get('content', 'No content'))
+        print("-" * 50)
+        
+        print("\nOptions:")
+        print("1. Edit this note")
+        print("2. Delete this note")
+        print("3. Back to notes list")
+        
+        choice = input("Choice: ").strip()
+        if choice == "1":
+            self.edit_specific_note(note)
+        elif choice == "2":
+            self.delete_specific_note(note)
+
+    # NEW METHOD: Create note from template
+    def create_note_from_template(self):
+        print("\n📋 Choose a Template:")
+        templates = list(self.note_templates.items())
+        
+        for i, (key, template) in enumerate(templates, 1):
+            print(f"{i}. {template['name']}")
+        
+        print(f"{len(templates) + 1}. Cancel")
+        
+        try:
+            choice = int(input("Enter template number: ")) - 1
+            if choice == len(templates):
+                return
+            elif 0 <= choice < len(templates):
+                template_key, template = templates[choice]
+                self.create_note_with_template(template_key, template)
+            else:
+                print("Invalid choice.")
+        except ValueError:
+            print("Invalid input.")
+
+    # NEW METHOD: Create note with specific template
+    def create_note_with_template(self, template_key, template):
+        print(f"\n📝 Creating Note with {template['name']} Template")
+        print("Fill in the following information (press Enter to skip optional fields):")
+        
+        # Collect template variables
+        title = input("Note title: ").strip()
+        if not title:
+            title = f"{template['name']} - {datetime.now().strftime('%Y-%m-%d')}"
+        
+        subject = input("Subject: ").strip() or "General"
+        
+        # Template-specific fields
+        template_vars = {
+            'title': title,
+            'date': datetime.now().strftime('%Y-%m-%d'),
+            'subject': subject
+        }
+        
+        if template_key == "lecture":
+            template_vars['instructor'] = input("Instructor name: ").strip() or "TBD"
+        elif template_key == "study_guide":
+            template_vars['exam_date'] = input("Exam date: ").strip() or "TBD"
+        elif template_key == "meeting":
+            template_vars['attendees'] = input("Attendees: ").strip() or "TBD"
+            template_vars['duration'] = input("Duration: ").strip() or "TBD"
+        elif template_key == "research":
+            template_vars['source'] = input("Source: ").strip() or "TBD"
+            template_vars['author'] = input("Author: ").strip() or "TBD"
+            template_vars['question'] = input("Research question: ").strip() or "TBD"
+            template_vars['analysis'] = input("Initial analysis: ").strip() or "TBD"
+        
+        # Main content
+        print("\nEnter your main content (type 'END' on a new line when finished):")
+        content_lines = []
+        while True:
+            line = input()
+            if line.strip() == "END":
+                break
+            content_lines.append(line)
+        
+        main_content = "\n".join(content_lines)
+        template_vars['content'] = main_content
+        
+        # Add summary for Cornell notes
+        if template_key == "cornell":
+            print("\nEnter summary (optional):")
+            summary_lines = []
+            while True:
+                line = input()
+                if line.strip() == "END" or line.strip() == "":
+                    break
+                summary_lines.append(line)
+            template_vars['summary'] = "\n".join(summary_lines)
+        
+        # Create the note content using template
+        try:
+            formatted_content = template['structure'].format(**template_vars)
+        except KeyError as e:
+            print(f"Missing template variable: {e}")
+            formatted_content = template['structure']
+        
+        # Create note object
+        note = {
+            'title': title,
+            'subject': subject,
+            'content': formatted_content,
+            'template_used': template['name'],
+            'created': datetime.now().strftime('%Y-%m-%d %H:%M'),
+            'last_edited': datetime.now().strftime('%Y-%m-%d %H:%M'),
+            'tags': []
+        }
+        
+        self.notes[self.current_user].append(note)
+        self.save_data()
+        
+        print(f"\n✅ Note '{title}' created successfully using {template['name']} template!")
+        
+        # Give points for creating notes
+        self.points[self.current_user] += 2
+        print("You earned 2 points for creating a note!")
+        
+        # Pet happiness boost for studying/note-taking
+        pet = self.pets.get(self.current_user)
+        if pet:
+            pet['happiness'] = min(100, pet['happiness'] + 3)
+            pet['xp'] += 2
+            print(f"🐾 {pet['name']} is happy you're taking notes! +3 happiness, +2 XP")
+        
+        self.save_data()
+
+    # NEW METHOD: Create blank note
+    def create_blank_note(self):
+        print("\n📝 Create Blank Note")
+        
+        title = input("Note title: ").strip()
+        if not title:
+            print("Title cannot be empty.")
+            return
+        
+        subject = input("Subject (default: General): ").strip() or "General"
+        
+        print("\nEnter your note content (type 'END' on a new line when finished):")
+        content_lines = []
+        while True:
+            line = input()
+            if line.strip() == "END":
+                break
+            content_lines.append(line)
+        
+        content = "\n".join(content_lines)
+        
+        note = {
+            'title': title,
+            'subject': subject,
+            'content': content,
+            'template_used': 'Custom',
+            'created': datetime.now().strftime('%Y-%m-%d %H:%M'),
+            'last_edited': datetime.now().strftime('%Y-%m-%d %H:%M'),
+            'tags': []
+        }
+        
+        self.notes[self.current_user].append(note)
+        
+        print(f"\n✅ Note '{title}' created successfully!")
+        
+        # Give points and pet bonuses
+        self.points[self.current_user] += 2
+        print("You earned 2 points for creating a note!")
+        
+        pet = self.pets.get(self.current_user)
+        if pet:
+            pet['happiness'] = min(100, pet['happiness'] + 3)
+            pet['xp'] += 2
+            print(f"🐾 {pet['name']} is happy you're taking notes! +3 happiness, +2 XP")
+        
+        self.save_data()
+
+    # NEW METHOD: Edit note
+    def edit_note(self):
+        notes = self.notes[self.current_user]
+        if not notes:
+            print("No notes to edit.")
+            return
+        
+        print("\nSelect a note to edit:")
+        for i, note in enumerate(notes, 1):
+            print(f"{i}. {note.get('title', 'Untitled')} ({note.get('subject', 'General')})")
+        
+        try:
+            choice = int(input("Enter note number: ")) - 1
+            if 0 <= choice < len(notes):
+                self.edit_specific_note(notes[choice])
+            else:
+                print("Invalid selection.")
+        except ValueError:
+            print("Invalid input.")
+
+    # NEW METHOD: Edit specific note
+    def edit_specific_note(self, note):
+        print(f"\n✏️ Editing: {note.get('title', 'Untitled')}")
+        print("1. Edit title")
+        print("2. Edit subject")
+        print("3. Edit content")
+        print("4. Add/edit tags")
+        print("5. Back")
+        
+        choice = input("What would you like to edit? ").strip()
+        
+        if choice == "1":
+            new_title = input(f"Current title: {note.get('title', 'Untitled')}\nNew title: ").strip()
+            if new_title:
+                note['title'] = new_title
+                print("Title updated!")
+        elif choice == "2":
+            new_subject = input(f"Current subject: {note.get('subject', 'General')}\nNew subject: ").strip()
+            if new_subject:
+                note['subject'] = new_subject
+                print("Subject updated!")
+        elif choice == "3":
+            print(f"Current content:\n{note.get('content', '')}")
+            print("\nEnter new content (type 'END' on a new line when finished):")
+            content_lines = []
+            while True:
+                line = input()
+                if line.strip() == "END":
+                    break
+                content_lines.append(line)
+            note['content'] = "\n".join(content_lines)
+            print("Content updated!")
+        elif choice == "4":
+            current_tags = ", ".join(note.get('tags', []))
+            print(f"Current tags: {current_tags}")
+            new_tags = input("Enter tags (comma-separated): ").strip()
+            if new_tags:
+                note['tags'] = [tag.strip() for tag in new_tags.split(',')]
+                print("Tags updated!")
+        elif choice == "5":
+            return
+        else:
+            print("Invalid choice.")
+            return
+        
+        note['last_edited'] = datetime.now().strftime('%Y-%m-%d %H:%M')
+        self.save_data()
+        print("Note saved successfully!")
+
+    # NEW METHOD: Delete note
+    def delete_note(self):
+        notes = self.notes[self.current_user]
+        if not notes:
+            print("No notes to delete.")
+            return
+        
+        print("\nSelect a note to delete:")
+        for i, note in enumerate(notes, 1):
+            print(f"{i}. {note.get('title', 'Untitled')} ({note.get('subject', 'General')})")
+        
+        try:
+            choice = int(input("Enter note number: ")) - 1
+            if 0 <= choice < len(notes):
+                self.delete_specific_note(notes[choice])
+            else:
+                print("Invalid selection.")
+        except ValueError:
+            print("Invalid input.")
+
+    # NEW METHOD: Delete specific note
+    def delete_specific_note(self, note):
+        title = note.get('title', 'Untitled')
+        confirm = input(f"Are you sure you want to delete '{title}'? (type 'DELETE' to confirm): ")
+        if confirm == "DELETE":
+            self.notes[self.current_user].remove(note)
+            self.save_data()
+            print(f"Note '{title}' deleted successfully!")
+        else:
+            print("Deletion cancelled.")
+
+    # NEW METHOD: Search notes
+    def search_notes(self):
+        notes = self.notes[self.current_user]
+        if not notes:
+            print("No notes to search.")
+            return
+        
+        query = input("Enter search term (searches title, subject, and content): ").strip().lower()
+        if not query:
+            return
+        
+        matching_notes = []
+        for note in notes:
+            if (query in note.get('title', '').lower() or 
+                query in note.get('subject', '').lower() or 
+                query in note.get('content', '').lower() or
+                query in ' '.join(note.get('tags', [])).lower()):
+                matching_notes.append(note)
+        
+        if not matching_notes:
+            print(f"No notes found containing '{query}'")
+            return
+        
+        print(f"\n🔍 Found {len(matching_notes)} note(s) matching '{query}':")
+        for i, note in enumerate(matching_notes, 1):
+            title = note.get('title', 'Untitled')
+            subject = note.get('subject', 'General')
+            print(f"{i}. {title} ({subject})")
+        
+        try:
+            choice = int(input("Enter note number to view (or 0 to go back): "))
+            if 1 <= choice <= len(matching_notes):
+                self.view_single_note(matching_notes[choice - 1])
+        except ValueError:
+            pass
+
+    # NEW METHOD: Export notes
+    def export_notes(self):
+        notes = self.notes[self.current_user]
+        if not notes:
+            print("No notes to export.")
+            return
+        
+        print("Export options:")
+        print("1. Export all notes to single file")
+        print("2. Export notes by subject")
+        print("3. Cancel")
+        
+        choice = input("Choice: ").strip()
+        
+        if choice == "1":
+            filename = f"all_notes_{self.current_user}_{datetime.now().strftime('%Y%m%d')}.txt"
+            self.export_all_notes(filename)
+        elif choice == "2":
+            subjects = list(set(note.get('subject', 'General') for note in notes))
+            print("\nAvailable subjects:")
+            for i, subject in enumerate(subjects, 1):
+                print(f"{i}. {subject}")
+            
+            try:
+                sub_choice = int(input("Select subject: ")) - 1
+                if 0 <= sub_choice < len(subjects):
+                    subject = subjects[sub_choice]
+                    filename = f"{subject}_notes_{self.current_user}_{datetime.now().strftime('%Y%m%d')}.txt"
+                    self.export_notes_by_subject(subject, filename)
+            except ValueError:
+                print("Invalid choice.")
+
+    # NEW METHOD: Export all notes
+    def export_all_notes(self, filename):
+        notes = self.notes[self.current_user]
+        export_content = f"📚 All Notes for {self.current_user}\n"
+        export_content += f"Exported on: {datetime.now().strftime('%Y-%m-%d %H:%M')}\n"
+        export_content += f"Total notes: {len(notes)}\n"
+        export_content += "=" * 80 + "\n\n"
+        
+        for i, note in enumerate(notes, 1):
+            export_content += f"📄 Note {i}: {note.get('title', 'Untitled')}\n"
+            export_content += f"Subject: {note.get('subject', 'General')}\n"
+            export_content += f"Created: {note.get('created', 'Unknown')}\n"
+            export_content += f"Template: {note.get('template_used', 'Custom')}\n"
+            export_content += "-" * 50 + "\n"
+            export_content += note.get('content', 'No content') + "\n"
+            export_content += "=" * 80 + "\n\n"
+        
+        print(f"📁 Export saved as: {filename}")
+        print("(In a real application, this would save to a file)")
+        print(f"Content preview:\n{export_content[:500]}...")
+
+    # NEW METHOD: Export notes by subject
+    def export_notes_by_subject(self, subject, filename):
+        notes = [note for note in self.notes[self.current_user] if note.get('subject', 'General') == subject]
+        
+        export_content = f"📚 {subject} Notes for {self.current_user}\n"
+        export_content += f"Exported on: {datetime.now().strftime('%Y-%m-%d %H:%M')}\n"
+        export_content += f"Total notes: {len(notes)}\n"
+        export_content += "=" * 80 + "\n\n"
+        
+        for i, note in enumerate(notes, 1):
+            export_content += f"📄 Note {i}: {note.get('title', 'Untitled')}\n"
+            export_content += f"Created: {note.get('created', 'Unknown')}\n"
+            export_content += f"Template: {note.get('template_used', 'Custom')}\n"
+            export_content += "-" * 50 + "\n"
+            export_content += note.get('content', 'No content') + "\n"
+            export_content += "=" * 80 + "\n\n"
+        
+        print(f"📁 Export saved as: {filename}")
+        print("(In a real application, this would save to a file)")
+        print(f"Content preview:\n{export_content[:500]}...")
+
+    # NEW METHOD: Note statistics
+    def note_statistics(self):
+        notes = self.notes[self.current_user]
+        if not notes:
+            print("No notes to analyze.")
+            return
+        
+        print("\n📊 Note Statistics")
+        print("=" * 40)
+        
+        # Basic stats
+        total_notes = len(notes)
+        total_words = sum(len(note.get('content', '').split()) for note in notes)
+        
+        print(f"Total notes: {total_notes}")
+        print(f"Total words: {total_words}")
+        print(f"Average words per note: {total_words // total_notes if total_notes > 0 else 0}")
+        
+        # Subject breakdown
+        subjects = {}
+        for note in notes:
+            subject = note.get('subject', 'General')
+            subjects[subject] = subjects.get(subject, 0) + 1
+        
+        print(f"\n📚 Notes by Subject:")
+        for subject, count in sorted(subjects.items(), key=lambda x: x[1], reverse=True):
+            percentage = (count / total_notes) * 100
+            print(f"  {subject}: {count} notes ({percentage:.1f}%)")
+        
+        # Template usage
+        templates = {}
+        for note in notes:
+            template = note.get('template_used', 'Custom')
+            templates[template] = templates.get(template, 0) + 1
+        
+        print(f"\n📋 Template Usage:")
+        for template, count in sorted(templates.items(), key=lambda x: x[1], reverse=True):
+            percentage = (count / total_notes) * 100
+            print(f"  {template}: {count} notes ({percentage:.1f}%)")
+        
+        # Recent activity
+        recent_notes = [note for note in notes if note.get('created', '')]
+        if recent_notes:
+            recent_notes.sort(key=lambda x: x.get('created', ''), reverse=True)
+            print(f"\n📅 Recent Notes:")
+            for note in recent_notes[:5]:
+                title = note.get('title', 'Untitled')
+                created = note.get('created', 'Unknown')
+                print(f"  • {title} - {created}")
+        
+        input("\nPress Enter to continue...")
+
+    # NEW METHOD: Subject Performance Correlation Analysis
+    def subject_performance_correlation(self):
+        print("\n📈 Subject Performance Correlation Analysis")
+        print("=" * 60)
+        
+        # Collect all subjects from various sources
+        all_subjects = set()
+        
+        # Get subjects from notes
+        for note in self.notes[self.current_user]:
+            subject = note.get('subject', 'General')
+            if subject != 'General':
+                all_subjects.add(subject)
+        
+        # Get subjects from study sessions
+        for session in self.study_history.get(self.current_user, []):
+            if isinstance(session, dict) and session.get('subject'):
+                all_subjects.add(session['subject'])
+        
+        # Get subjects from assignments
+        for assignment in self.study_assignments.get(self.current_user, []):
+            all_subjects.add(assignment['subject'])
+        
+        # Get subjects from flashcards (if they have subject metadata)
+        # Add calendar subjects
+        for date, subject in self.calendar.get(self.current_user, {}).items():
+            if subject:
+                all_subjects.add(subject)
+        
+        if not all_subjects:
+            print("No subject data found. Start studying, taking notes, or completing assignments!")
+            print("💡 Tip: Make sure to specify subjects when using study timers and creating notes.")
+            input("\nPress Enter to continue...")
+            return
+        
+        subject_analysis = {}
+        
+        for subject in all_subjects:
+            analysis = {
+                'name': subject,
+                'study_minutes': 0,
+                'study_sessions': 0,
+                'notes_count': 0,
+                'notes_words': 0,
+                'assignments_total': 0,
+                'assignments_completed': 0,
+                'assignment_progress': 0,
+                'recent_activity_days': 0,
+                'calendar_entries': 0,
+                'performance_score': 0,
+                'needs_attention': False,
+                'recommendations': []
+            }
+            
+            # Analyze study time
+            for session in self.study_history.get(self.current_user, []):
+                if isinstance(session, dict) and session.get('subject') == subject:
+                    analysis['study_minutes'] += session.get('duration', 0)
+                    analysis['study_sessions'] += 1
+            
+            # Analyze notes
+            for note in self.notes[self.current_user]:
+                if note.get('subject') == subject:
+                    analysis['notes_count'] += 1
+                    analysis['notes_words'] += len(note.get('content', '').split())
+            
+            # Analyze assignments
+            for assignment in self.study_assignments.get(self.current_user, []):
+                if assignment['subject'] == subject:
+                    analysis['assignments_total'] += 1
+                    if assignment.get('completed', False):
+                        analysis['assignments_completed'] += 1
+                    
+                    completed_mins = assignment.get('completed_minutes', 0)
+                    total_mins = assignment['total_minutes']
+                    analysis['assignment_progress'] += (completed_mins / total_mins) * 100
+            
+            # Calculate average assignment progress
+            if analysis['assignments_total'] > 0:
+                analysis['assignment_progress'] /= analysis['assignments_total']
+            
+            # Analyze recent activity (last 7 days)
+            recent_dates = set()
+            today = datetime.now().date()
+            week_ago = today - timedelta(days=7)
+            
+            for session in self.study_history.get(self.current_user, []):
+                if isinstance(session, dict) and session.get('subject') == subject:
+                    session_date = datetime.strptime(session['timestamp'], "%Y-%m-%d %H:%M").date()
+                    if session_date >= week_ago:
+                        recent_dates.add(session_date)
+            
+            analysis['recent_activity_days'] = len(recent_dates)
+            
+            # Count calendar entries
+            for date, cal_subject in self.calendar.get(self.current_user, {}).items():
+                if cal_subject == subject:
+                    analysis['calendar_entries'] += 1
+            
+            # Calculate performance score (0-100)
+            score = 0
+            
+            # Study time factor (0-30 points)
+            if analysis['study_minutes'] >= 120:  # 2+ hours
+                score += 30
+            elif analysis['study_minutes'] >= 60:  # 1+ hour
+                score += 20
+            elif analysis['study_minutes'] >= 25:  # 25+ minutes
+                score += 10
+            
+            # Assignment completion factor (0-25 points)
+            if analysis['assignments_total'] > 0:
+                completion_rate = analysis['assignments_completed'] / analysis['assignments_total']
+                score += completion_rate * 25
+            
+            # Assignment progress factor (0-20 points)
+            if analysis['assignment_progress'] >= 90:
+                score += 20
+            elif analysis['assignment_progress'] >= 70:
+                score += 15
+            elif analysis['assignment_progress'] >= 50:
+                score += 10
+            elif analysis['assignment_progress'] >= 25:
+                score += 5
+            
+            # Notes factor (0-15 points)
+            if analysis['notes_count'] >= 5:
+                score += 15
+            elif analysis['notes_count'] >= 3:
+                score += 10
+            elif analysis['notes_count'] >= 1:
+                score += 5
+            
+            # Recent activity factor (0-10 points)
+            if analysis['recent_activity_days'] >= 5:
+                score += 10
+            elif analysis['recent_activity_days'] >= 3:
+                score += 7
+            elif analysis['recent_activity_days'] >= 1:
+                score += 4
+            
+            analysis['performance_score'] = min(100, score)
+            
+            # Determine if subject needs attention
+            if (analysis['performance_score'] < 40 or 
+                analysis['recent_activity_days'] == 0 or
+                (analysis['assignments_total'] > 0 and analysis['assignment_progress'] < 50)):
+                analysis['needs_attention'] = True
+            
+            # Generate recommendations
+            if analysis['study_minutes'] < 30:
+                analysis['recommendations'].append("📚 Increase study time - aim for at least 30 minutes")
+            
+            if analysis['recent_activity_days'] == 0:
+                analysis['recommendations'].append("⏰ No recent activity - schedule study time this week")
+            
+            if analysis['notes_count'] == 0:
+                analysis['recommendations'].append("📝 Create study notes to improve retention")
+            
+            if analysis['assignments_total'] > 0 and analysis['assignment_progress'] < 70:
+                analysis['recommendations'].append("📋 Focus on completing assignments")
+            
+            if analysis['study_sessions'] < 3:
+                analysis['recommendations'].append("🔄 Study more regularly - consistency is key")
+            
+            subject_analysis[subject] = analysis
+        
+        # Sort subjects by performance score (lowest first - needs most attention)
+        sorted_subjects = sorted(subject_analysis.values(), key=lambda x: x['performance_score'])
+        
+        print(f"📊 Analyzing {len(sorted_subjects)} subjects...")
+        print("\n🔴 SUBJECTS NEEDING ATTENTION (Low Performance)")
+        print("-" * 50)
+        
+        attention_subjects = [s for s in sorted_subjects if s['needs_attention']]
+        if attention_subjects:
+            for i, analysis in enumerate(attention_subjects[:3], 1):  # Top 3 needing attention
+                self.display_subject_analysis(analysis, f"#{i} PRIORITY")
+        else:
+            print("✅ Great job! No subjects need immediate attention.")
+        
+        print("\n\n🟢 WELL-PERFORMING SUBJECTS")
+        print("-" * 30)
+        
+        good_subjects = [s for s in sorted_subjects if not s['needs_attention']]
+        if good_subjects:
+            # Show top 3 performing subjects
+            for analysis in sorted(good_subjects, key=lambda x: x['performance_score'], reverse=True)[:3]:
+                self.display_subject_analysis(analysis, "✅ GOOD")
+        else:
+            print("No subjects are currently performing well. Let's work on improving!")
+        
+        print("\n\n📈 OVERALL INSIGHTS")
+        print("-" * 20)
+        
+        total_study_time = sum(s['study_minutes'] for s in sorted_subjects)
+        total_notes = sum(s['notes_count'] for s in sorted_subjects)
+        avg_performance = sum(s['performance_score'] for s in sorted_subjects) / len(sorted_subjects)
+        
+        print(f"📚 Total study time across all subjects: {total_study_time} minutes ({total_study_time//60}h {total_study_time%60}m)")
+        print(f"📝 Total notes across all subjects: {total_notes}")
+        print(f"📊 Average performance score: {avg_performance:.1f}/100")
+        
+        if avg_performance < 50:
+            print("💡 Overall performance needs improvement. Focus on consistent study habits!")
+        elif avg_performance < 70:
+            print("💡 Good progress! Focus on your lowest-performing subjects.")
+        else:
+            print("🎉 Excellent overall performance! Keep up the great work!")
+        
+        print(f"\n🎯 ACTIONABLE RECOMMENDATIONS")
+        print("-" * 30)
+        
+        if attention_subjects:
+            priority_subject = attention_subjects[0]
+            print(f"1. FOCUS ON: {priority_subject['name']} (Score: {priority_subject['performance_score']}/100)")
+            for rec in priority_subject['recommendations'][:2]:
+                print(f"   • {rec}")
+        
+        # General recommendations
+        if total_study_time < 120:  # Less than 2 hours total
+            print("2. Increase overall study time - aim for 2+ hours per week")
+        
+        if len([s for s in sorted_subjects if s['recent_activity_days'] == 0]) > len(sorted_subjects) // 2:
+            print("3. Create a consistent study schedule for all subjects")
+        
+        if total_notes < len(sorted_subjects) * 2:
+            print("4. Take more notes - aim for at least 2 notes per subject")
+        
+        input("\nPress Enter to continue...")
+
+    def display_subject_analysis(self, analysis, status):
+        print(f"\n{status}: {analysis['name']}")
+        print(f"   Performance Score: {analysis['performance_score']}/100")
+        print(f"   Study Time: {analysis['study_minutes']} min ({analysis['study_sessions']} sessions)")
+        print(f"   Notes: {analysis['notes_count']} notes ({analysis['notes_words']} words)")
+        print(f"   Recent Activity: {analysis['recent_activity_days']}/7 days")
+        
+        if analysis['assignments_total'] > 0:
+            print(f"   Assignments: {analysis['assignments_completed']}/{analysis['assignments_total']} completed ({analysis['assignment_progress']:.1f}% avg progress)")
+        
+        if analysis['recommendations']:
+            print(f"   Top Recommendations:")
+            for rec in analysis['recommendations'][:2]:  # Show top 2 recommendations
+                print(f"     • {rec}")
+        
+        # Performance bar
+        score = analysis['performance_score']
+        bar_length = 20
+        filled = int(score / 5)  # Each bar segment represents 5 points
+        bar = "█" * filled + "░" * (bar_length - filled)
+        print(f"   Progress: [{bar}] {score}/100")
+
     def view_study_assignments(self):
         assignments = self.study_assignments.get(self.current_user, [])
         if not assignments:
@@ -346,7 +1613,6 @@ class StudyApp:
             print(f"   Due: {assignment.get('due_date', 'No due date')}")
             print(f"   Instructions: {assignment.get('instructions', 'No additional instructions')}")
 
-            # Show progress bar
             progress = (completed_time / assignment['total_minutes']) * 100
             progress_bar = "█" * int(progress // 5) + "░" * (20 - int(progress // 5))
             print(f"   Progress: [{progress_bar}] {progress:.1f}%")
@@ -406,7 +1672,7 @@ class StudyApp:
             ("Add child account", self.parent_add_child),
             ("Set daily study time limit for child", self.parent_set_limit),
             ("View child's statistics", self.parent_child_stats),
-            ("View child's study time details", self.parent_view_study_time),  # NEW
+            ("View child's study time details", self.parent_view_study_time),
             ("Back", None)
         ]
         while True:
@@ -460,7 +1726,6 @@ class StudyApp:
         else:
             print("Not your child.")
 
-    # NEW METHOD: Parents can view detailed study time for children
     def parent_view_study_time(self):
         children = self.child_accounts.get(self.current_user, [])
         if not children:
@@ -481,42 +1746,34 @@ class StudyApp:
         except ValueError:
             print("Invalid input.")
 
-    # NEW METHOD: Show detailed study information for a specific child
     def show_child_study_details(self, child):
         print(f"\n=== Study Details for {child} ===")
 
-        # Get study history - convert old format to new format if needed
         study_sessions = self.study_history.get(child, [])
         if not study_sessions:
             print("No study sessions recorded yet.")
             return
 
-        # Convert old string format to new dict format if needed
         converted_sessions = []
         for session in study_sessions:
             if isinstance(session, str):
-                # Old format: just timestamp string
                 converted_sessions.append({
                     'timestamp': session,
-                    'duration': 25,  # Default duration for old sessions
+                    'duration': 25,
                     'type': 'Legacy Session',
                     'subject': 'General'
                 })
             else:
-                # New format: already a dict
                 converted_sessions.append(session)
 
-        # Calculate today's study time
         today = datetime.now().date()
         today_sessions = [s for s in converted_sessions if datetime.strptime(s['timestamp'], "%Y-%m-%d %H:%M").date() == today]
         today_minutes = sum(s.get('duration', 25) for s in today_sessions)
 
-        # Calculate this week's study time
         week_start = today - timedelta(days=today.weekday())
         week_sessions = [s for s in converted_sessions if datetime.strptime(s['timestamp'], "%Y-%m-%d %H:%M").date() >= week_start]
         week_minutes = sum(s.get('duration', 25) for s in week_sessions)
 
-        # Calculate total study time
         total_minutes = sum(s.get('duration', 25) for s in converted_sessions)
 
         print(f"📊 Study Time Summary:")
@@ -525,16 +1782,14 @@ class StudyApp:
         print(f"   Total all time: {total_minutes} minutes ({total_minutes//60}h {total_minutes%60}m)")
         print(f"   Total sessions: {len(converted_sessions)}")
 
-        # Show daily limit status
         daily_limit = self.time_limits.get(child, 1440)
-        if daily_limit < 1440:  # Only show if a limit is set
+        if daily_limit < 1440:
             remaining_today = max(0, daily_limit - today_minutes)
             print(f"   Daily limit: {daily_limit} minutes")
             print(f"   Remaining today: {remaining_today} minutes")
             if remaining_today == 0:
                 print("   ⚠️ Daily limit reached!")
 
-        # Show study assignments progress
         assignments = self.study_assignments.get(child, [])
         active_assignments = [a for a in assignments if not a.get('completed', False)]
         if active_assignments:
@@ -545,7 +1800,6 @@ class StudyApp:
                 progress = (completed / total) * 100
                 print(f"   • {assignment['subject']}: {completed}/{total} min ({progress:.1f}%)")
 
-        # Show recent study sessions
         print(f"\n📝 Recent Study Sessions (Last 7):")
         recent_sessions = sorted(converted_sessions, key=lambda x: x['timestamp'], reverse=True)[:7]
         for session in recent_sessions:
@@ -557,13 +1811,11 @@ class StudyApp:
             if subject != 'N/A' and subject != 'General':
                 print(f"     Subject: {subject}")
 
-        # Show study streak
         streak = self.calculate_study_streak(child)
         print(f"\n🔥 Current study streak: {streak} days")
 
         input("\nPress Enter to continue...")
 
-    # NEW METHOD: Calculate study streak
     def calculate_study_streak(self, username):
         study_sessions = self.study_history.get(username, [])
         if not study_sessions:
@@ -573,18 +1825,14 @@ class StudyApp:
         streak = 0
         current_date = today
 
-        # Get unique study dates
         study_dates = set()
         for session in study_sessions:
             if isinstance(session, str):
-                # Old format
                 session_date = datetime.strptime(session, "%Y-%m-%d %H:%M").date()
             else:
-                # New format
                 session_date = datetime.strptime(session['timestamp'], "%Y-%m-%d %H:%M").date()
             study_dates.add(session_date)
 
-        # Check consecutive days
         while current_date in study_dates:
             streak += 1
             current_date -= timedelta(days=1)
@@ -596,9 +1844,9 @@ class StudyApp:
             ("View students", self.teacher_view_students),
             ("Add student", self.teacher_add_student),
             ("Assign daily challenge to student", self.teacher_assign_challenge),
-            ("Assign study time to student", self.teacher_assign_study_time),  # NEW
+            ("Assign study time to student", self.teacher_assign_study_time),
             ("View student statistics", self.teacher_view_student_stats),
-            ("View student study assignments", self.teacher_view_assignments),  # NEW
+            ("View student study assignments", self.teacher_view_assignments),
             ("Back", None)
         ]
         while True:
@@ -646,7 +1894,6 @@ class StudyApp:
         else:
             print("Not your student.")
 
-    # NEW METHOD: Teachers can assign study time to students
     def teacher_assign_study_time(self):
         students = self.teacher_students.get(self.current_user, [])
         if not students:
@@ -667,7 +1914,6 @@ class StudyApp:
         except ValueError:
             print("Invalid input.")
 
-    # NEW METHOD: Create study assignment
     def create_study_assignment(self, student):
         print(f"\n=== Creating Study Assignment for {student} ===")
 
@@ -688,7 +1934,6 @@ class StudyApp:
         due_date = input("Due date (YYYY-MM-DD, optional): ").strip()
         if due_date:
             try:
-                # Validate date format
                 datetime.strptime(due_date, "%Y-%m-%d")
             except ValueError:
                 print("Invalid date format. Assignment created without due date.")
@@ -700,7 +1945,7 @@ class StudyApp:
         if not instructions:
             instructions = "No additional instructions"
 
-        bonus_points = 5  # Default bonus points for completing assignment
+        bonus_points = 5
         try:
             custom_bonus = input(f"Bonus points for completion (default {bonus_points}): ").strip()
             if custom_bonus:
@@ -708,7 +1953,6 @@ class StudyApp:
         except ValueError:
             print("Invalid bonus points, using default.")
 
-        # Create the assignment
         assignment = {
             'subject': subject,
             'total_minutes': total_minutes,
@@ -734,11 +1978,9 @@ class StudyApp:
         print(f"Due date: {due_date}")
         print(f"Bonus points: {bonus_points}")
 
-    # NEW METHOD: Teachers can view all their assignments
     def teacher_view_assignments(self):
         all_assignments = []
 
-        # Collect all assignments created by this teacher
         for student, assignments in self.study_assignments.items():
             for assignment in assignments:
                 if assignment.get('teacher') == self.current_user:
@@ -752,7 +1994,6 @@ class StudyApp:
 
         print(f"\n=== All Study Assignments by {self.current_user} ===")
 
-        # Group by completion status
         active_assignments = [a for a in all_assignments if not a.get('completed', False)]
         completed_assignments = [a for a in all_assignments if a.get('completed', False)]
 
@@ -768,7 +2009,6 @@ class StudyApp:
                 print(f"  Progress: {completed_time}/{total_time} min ({progress:.1f}%)")
                 print(f"  Due: {assignment.get('due_date', 'No due date')}")
 
-                # Progress bar
                 progress_bar = "█" * int(progress // 5) + "░" * (20 - int(progress // 5))
                 print(f"  [{progress_bar}]")
 
@@ -948,34 +2188,118 @@ class StudyApp:
         print("Notification scheduled!")
         self.save_data()
 
-    # --- Core methods ---
     def stats_menu(self, user=None):
         if user is None:
             user = self.current_user
-        print(f"\n--- Statistics for {user} ---")
+        
+        # If viewing someone else's stats, show basic stats only
+        if user != self.current_user:
+            print(f"\n--- Statistics for {user} ---")
 
-        # Calculate streak using new method
+            streak = self.calculate_study_streak(user)
+            print(f"Current study streak: {streak} days")
+
+            study_sessions = self.study_history.get(user, [])
+            total_sessions = len(study_sessions)
+
+            total_minutes = 0
+            for session in study_sessions:
+                if isinstance(session, str):
+                    total_minutes += 25
+                else:
+                    total_minutes += session.get('duration', 0)
+
+            print(f"Study sessions: {total_sessions}")
+            print(f"Total study time: {total_minutes} minutes ({total_minutes//60}h {total_minutes%60}m)")
+
+            today = datetime.now().date()
+            week_start = today - timedelta(days=today.weekday())
+
+            today_minutes = 0
+            week_minutes = 0
+
+            for session in study_sessions:
+                if isinstance(session, str):
+                    session_date = datetime.strptime(session, "%Y-%m-%d %H:%M").date()
+                    session_duration = 25
+                else:
+                    session_date = datetime.strptime(session['timestamp'], "%Y-%m-%d %H:%M").date()
+                    session_duration = session.get('duration', 0)
+
+                if session_date == today:
+                    today_minutes += session_duration
+                if session_date >= week_start:
+                    week_minutes += session_duration
+
+            print(f"Today's study time: {today_minutes} minutes")
+            print(f"This week's study time: {week_minutes} minutes")
+
+            stats = self.flashcard_stats.get(user, {"correct": 0, "total": 0})
+            print(f"Flashcard accuracy: {stats['correct']}/{stats['total']} correct "
+                  f"({(stats['correct']/stats['total']*100 if stats['total'] else 0):.1f}%)")
+
+            print(f"Total points: {self.points.get(user,0)}")
+
+            assignments = self.study_assignments.get(user, [])
+            if assignments:
+                completed_assignments = sum(1 for a in assignments if a.get('completed', False))
+                print(f"Study assignments: {completed_assignments}/{len(assignments)} completed")
+
+            # Show pet status if user has a pet
+            pet = self.pets.get(user)
+            if pet:
+                mood = self.get_pet_mood(pet)
+                print(f"Pet: {pet['name']} the {pet['type']} (Level {pet['level']}, {mood})")
+
+            print("-----------------------------------")
+            input("Press Enter to return to menu...")
+            return
+        
+        # Enhanced stats menu for current user
+        options = [
+            ("Basic Statistics", self.show_basic_stats),
+            ("Subject Performance Correlation", self.subject_performance_correlation),
+            ("Study Patterns Analysis", self.study_patterns_analysis),
+            ("Back", None)
+        ]
+        
+        while True:
+            print(f"\n📊 Statistics Menu for {user}")
+            for idx, (label, _) in enumerate(options, 1):
+                print(f"{idx}. {label}")
+            choice = input("Choice: ").strip()
+            try:
+                choice_num = int(choice)
+                if 1 <= choice_num <= len(options):
+                    if options[choice_num - 1][1] is None:
+                        return
+                    else:
+                        options[choice_num - 1][1]()
+                else:
+                    print("Invalid choice.")
+            except ValueError:
+                print("Invalid choice.")
+
+    def show_basic_stats(self):
+        user = self.current_user
+        print(f"\n--- Basic Statistics for {user} ---")
+
         streak = self.calculate_study_streak(user)
         print(f"Current study streak: {streak} days")
 
-        # Get detailed study sessions - handle both old and new formats
         study_sessions = self.study_history.get(user, [])
         total_sessions = len(study_sessions)
 
-        # Calculate total minutes - handle old string format and new dict format
         total_minutes = 0
         for session in study_sessions:
             if isinstance(session, str):
-                # Old format: assume 25 minutes per session
                 total_minutes += 25
             else:
-                # New format: has duration field
                 total_minutes += session.get('duration', 0)
 
         print(f"Study sessions: {total_sessions}")
         print(f"Total study time: {total_minutes} minutes ({total_minutes//60}h {total_minutes%60}m)")
 
-        # Show today's and this week's study time
         today = datetime.now().date()
         week_start = today - timedelta(days=today.weekday())
 
@@ -985,7 +2309,7 @@ class StudyApp:
         for session in study_sessions:
             if isinstance(session, str):
                 session_date = datetime.strptime(session, "%Y-%m-%d %H:%M").date()
-                session_duration = 25  # Default for old format
+                session_duration = 25
             else:
                 session_date = datetime.strptime(session['timestamp'], "%Y-%m-%d %H:%M").date()
                 session_duration = session.get('duration', 0)
@@ -998,21 +2322,36 @@ class StudyApp:
         print(f"Today's study time: {today_minutes} minutes")
         print(f"This week's study time: {week_minutes} minutes")
 
-        # Show flashcard stats
         stats = self.flashcard_stats.get(user, {"correct": 0, "total": 0})
         print(f"Flashcard accuracy: {stats['correct']}/{stats['total']} correct "
               f"({(stats['correct']/stats['total']*100 if stats['total'] else 0):.1f}%)")
 
         print(f"Total points: {self.points.get(user,0)}")
 
-        # Show study assignments if any
         assignments = self.study_assignments.get(user, [])
         if assignments:
             completed_assignments = sum(1 for a in assignments if a.get('completed', False))
             print(f"Study assignments: {completed_assignments}/{len(assignments)} completed")
 
+        # Show pet status if user has a pet
+        pet = self.pets.get(user)
+        if pet:
+            mood = self.get_pet_mood(pet)
+            print(f"Pet: {pet['name']} the {pet['type']} (Level {pet['level']}, {mood})")
+
         print("-----------------------------------")
-        input("Press Enter to return to menu...")
+        input("Press Enter to continue...")
+
+    def study_patterns_analysis(self):
+        print("\n📈 Study Patterns Analysis")
+        print("=" * 40)
+        print("(Feature coming soon!)")
+        print("This will analyze:")
+        print("• Best study times of day")
+        print("• Study session length patterns")
+        print("• Weekly study consistency")
+        print("• Break frequency and effectiveness")
+        input("\nPress Enter to continue...")
 
     def create_flashcard(self):
         question = input("Enter question: ")
@@ -1035,6 +2374,12 @@ class StudyApp:
             if correct:
                 print("Correct!")
                 self.flashcard_stats[self.current_user]['correct'] += 1
+                
+                # Give pet happiness boost for correct answers
+                pet = self.pets.get(self.current_user)
+                if pet:
+                    pet['happiness'] = min(100, pet['happiness'] + 2)
+                    print(f"🐾 {pet['name']} is happy you got it right! +2 happiness")
             else:
                 print("Incorrect.")
             print(f"Current accuracy: {self.flashcard_stats[self.current_user]['correct']}/{self.flashcard_stats[self.current_user]['total']}")
@@ -1071,24 +2416,29 @@ class StudyApp:
                 self.points[self.current_user] += 1
                 c["attempted"] = True
                 print("You earned 1 point!")
+                
+                # Give pet happiness boost for completing challenges
+                pet = self.pets.get(self.current_user)
+                if pet:
+                    pet['happiness'] = min(100, pet['happiness'] + 5)
+                    pet['xp'] += 3
+                    print(f"🐾 {pet['name']} is proud of your achievement! +5 happiness, +3 XP")
             else:
                 print("Incorrect. Please try again later.")
         self.leaderboard()
 
-    # UPDATED METHOD: Enhanced grant study points with assignment tracking
     def grant_study_points(self, duration, session_type="General Study", subject=None):
         now = datetime.now()
         user = self.current_user
         limit = self.time_limits.get(user, 1440)
         today = now.date()
 
-        # Calculate today's study time from detailed history
         study_sessions = self.study_history.get(user, [])
         today_minutes = 0
         for session in study_sessions:
             if isinstance(session, str):
                 session_date = datetime.strptime(session, "%Y-%m-%d %H:%M").date()
-                session_duration = 25  # Default for old format
+                session_duration = 25
             else:
                 session_date = datetime.strptime(session['timestamp'], "%Y-%m-%d %H:%M").date()
                 session_duration = session.get('duration', 0)
@@ -1100,7 +2450,6 @@ class StudyApp:
             print(f"You have reached your daily study time limit: {limit} minutes.")
             return
 
-        # Check if this would exceed the limit
         if today_minutes + duration > limit:
             allowed_duration = limit - today_minutes
             print(f"Study time limited to {allowed_duration} minutes due to daily limit.")
@@ -1108,12 +2457,27 @@ class StudyApp:
             if duration <= 0:
                 return
 
-        # Award points
         pts = max(1, duration // 25 * 2)
         self.points[user] += pts
         print(f"You earned {pts} points!")
 
-        # Record detailed study session
+        # Give pet happiness and XP for studying
+        pet = self.pets.get(user)
+        if pet:
+            happiness_gain = min(10, duration // 5)  # 2 happiness per 5 minutes, max 10
+            xp_gain = duration // 10  # 1 XP per 10 minutes
+            
+            pet['happiness'] = min(100, pet['happiness'] + happiness_gain)
+            pet['xp'] += xp_gain
+            
+            print(f"🐾 {pet['name']} enjoyed studying with you! +{happiness_gain} happiness, +{xp_gain} XP")
+            
+            # Check for level up
+            if pet['xp'] >= 100:
+                pet['level'] += 1
+                pet['xp'] = 0
+                print(f"🎉 {pet['name']} leveled up! Now level {pet['level']}!")
+
         session_record = {
             'timestamp': now.strftime("%Y-%m-%d %H:%M"),
             'duration': duration,
@@ -1126,47 +2490,47 @@ class StudyApp:
             self.study_history[user] = []
         self.study_history[user].append(session_record)
 
-        # Update study assignments if applicable
         self.update_study_assignments(user, duration, subject)
-
         self.save_data()
 
-    # NEW METHOD: Update study assignment progress
     def update_study_assignments(self, user, duration, subject):
         assignments = self.study_assignments.get(user, [])
         updated_any = False
 
         for assignment in assignments:
             if assignment.get('completed', False):
-                continue  # Skip completed assignments
+                continue
 
-            # If subject matches or no specific subject for the study session
             if subject is None or assignment['subject'].lower() == subject.lower():
                 assignment['completed_minutes'] = assignment.get('completed_minutes', 0) + duration
                 updated_any = True
 
-                # Check if assignment is now complete
                 if assignment['completed_minutes'] >= assignment['total_minutes']:
                     assignment['completed'] = True
                     bonus_points = assignment.get('bonus_points', 5)
                     self.points[user] += bonus_points
                     print(f"🎉 Assignment completed! '{assignment['subject']}' - Bonus {bonus_points} points!")
+                    
+                    # Give pet extra happiness for completing assignments
+                    pet = self.pets.get(user)
+                    if pet:
+                        pet['happiness'] = min(100, pet['happiness'] + 15)
+                        pet['xp'] += 10
+                        print(f"🐾 {pet['name']} is very proud! +15 happiness, +10 XP for completing assignment!")
                 else:
                     remaining = assignment['total_minutes'] - assignment['completed_minutes']
                     print(f"📚 Assignment progress updated: '{assignment['subject']}' - {remaining} minutes remaining")
 
-                break  # Only update one assignment per study session
+                break
 
         if updated_any:
             self.save_data()
 
-    # UPDATED METHOD: Enhanced pomodoro with assignment tracking
     def pomodoro_timer(self):
         work = self.pomodoro_config["work"]
         brk = self.pomodoro_config["break"]
         print(f"Pomodoro: {work} minutes work, {brk} minutes break.")
 
-        # Ask for subject if student has active assignments
         subject = self.ask_for_subject_if_assignments()
 
         input("Press Enter to start work session...")
@@ -1177,7 +2541,6 @@ class StudyApp:
         print("Pomodoro session complete! Points awarded.")
         self.leaderboard()
 
-    # UPDATED METHOD: Enhanced custom timer with assignment tracking
     def custom_study_timer(self):
         try:
             mins = int(input("Enter study minutes: "))
@@ -1188,7 +2551,6 @@ class StudyApp:
             print("Minutes must be positive.")
             return
 
-        # Ask for subject if student has active assignments
         subject = self.ask_for_subject_if_assignments()
 
         input("Press Enter to start timer...")
@@ -1197,7 +2559,6 @@ class StudyApp:
         print("Custom study session complete! Points awarded.")
         self.leaderboard()
 
-    # NEW METHOD: Ask student which subject they're studying
     def ask_for_subject_if_assignments(self):
         assignments = self.study_assignments.get(self.current_user, [])
         active_assignments = [a for a in assignments if not a.get('completed', False)]
@@ -1315,6 +2676,13 @@ class StudyApp:
                 self.points[self.current_user] += 1
                 c["attempted"] = True
                 print("You earned 1 point!")
+                
+                # Give pet happiness for completing teacher assignments
+                pet = self.pets.get(self.current_user)
+                if pet:
+                    pet['happiness'] = min(100, pet['happiness'] + 8)
+                    pet['xp'] += 5
+                    print(f"🐾 {pet['name']} is impressed! +8 happiness, +5 XP")
             else:
                 print("Incorrect. Please try again later.")
         self.save_data()
@@ -1331,4 +2699,4 @@ class StudyApp:
 
 if __name__ == "__main__":
     app = StudyApp()
-    app.start_screen() 
+    app.start_screen()
